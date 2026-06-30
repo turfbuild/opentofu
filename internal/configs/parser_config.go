@@ -236,6 +236,13 @@ func loadConfigFileBody(body hcl.Body, _ string, override bool) (*File, hcl.Diag
 				file.Removed = append(file.Removed, cfg)
 			}
 
+		case "action":
+			cfg, cfgDiags := decodeActionBlock(block)
+			diags = append(diags, cfgDiags...)
+			if cfg != nil {
+				file.Actions = append(file.Actions, cfg)
+			}
+
 		default:
 			// Should never happen because the above cases should be exhaustive
 			// for all block type names in our schema.
@@ -307,6 +314,13 @@ var configFileSchema = &hcl.BodySchema{
 		},
 		{
 			Type: "terraform",
+		},
+		{
+			// Terraform 1.14+ provider actions. OpenTofu has no native action
+			// support yet (opentofu/opentofu#3309); this additive block keeps
+			// configs carrying the action syntax loadable. See action.go.
+			Type:       "action",
+			LabelNames: []string{"type", "name"},
 		},
 	},
 }
