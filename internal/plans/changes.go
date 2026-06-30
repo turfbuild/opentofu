@@ -31,6 +31,12 @@ type Changes struct {
 	// can be easily re-calculated during the apply phase. Therefore only root
 	// module outputs will survive a round-trip through a plan file.
 	Outputs []*OutputChangeSrc
+
+	// ActionInvocations tracks planned invocations of provider actions
+	// (Terraform 1.14 actions). Downstream extension, in-memory only — see
+	// ActionInvocationInstanceSrc and opentofu/opentofu#3309. It is not
+	// serialized to a plan file.
+	ActionInvocations []*ActionInvocationInstanceSrc
 }
 
 // NewChanges returns a valid Changes object that describes no changes.
