@@ -48,12 +48,17 @@ type Installer struct {
 
 // NewInstaller builds an Installer that unpacks providers into localCacheDir.
 //
+// services carries the host credentials used to reach a provider registry; pass
+// the same object the rest of the host uses (see x/cliconfig.NewServiceDiscovery)
+// so a private registry authenticates. A nil services falls back to anonymous
+// discovery, which reaches public registries only.
+//
 // If globalCacheDir is non-empty (e.g. from TF_PLUGIN_CACHE_DIR), it is used as
 // a shared read-through cache: a provider already present there is linked into
 // localCacheDir without re-downloading, so binaries are reused across server
 // processes and across test runs. globalCacheDir uses OpenTofu's canonical
 // plugin-cache layout, so it interoperates with a cache populated by `tofu`.
-func NewInstaller(ctx context.Context, localCacheDir, globalCacheDir string) (*Installer, error) {
+func NewInstaller(ctx context.Context, localCacheDir, globalCacheDir string, services *disco.Disco) (*Installer, error) {
 	if localCacheDir == "" {
 		return nil, fmt.Errorf("local cache dir must not be empty")
 	}
@@ -64,7 +69,9 @@ func NewInstaller(ctx context.Context, localCacheDir, globalCacheDir string) (*I
 	// A registry-tuned HTTP client (retry policy, user agent) shared by both
 	// service discovery and the registry source, mirroring `tofu init`.
 	httpClient := httpclient.NewForRegistryRequests(ctx, defaultProviderDownloadRetries, 0)
-	services := disco.New(disco.WithHTTPClient(httpClient.HTTPClient))
+	if services == nil {
+		services = disco.New(disco.WithHTTPClient(httpClient.HTTPClient))
+	}
 
 	var src getproviders.Source = getproviders.NewRegistrySource(ctx, services, httpClient, getproviders.LocationConfig{
 		ProviderDownloadRetries: defaultProviderDownloadRetries,
