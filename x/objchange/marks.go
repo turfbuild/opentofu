@@ -15,10 +15,10 @@ import (
 
 // MarkSensitive derives schema-driven sensitivity for val from the schema
 // block (via configschema's ValueMarks) and returns val with the resulting
-// path marks applied. This is the display/redaction path: symbol is nil so no
-// deprecation marks are added, and remote-ness is irrelevant to sensitivity.
+// path marks applied. This is the display/redaction path: the subject is nil
+// so no deprecation marks are added.
 func MarkSensitive(schema *configschema.Block, val cty.Value) cty.Value {
-	return val.MarkWithPaths(schema.ValueMarks(val, nil, nil, false))
+	return val.MarkWithPaths(schema.ValueMarks(val, nil, nil))
 }
 
 // SensitivePaths returns the Sensitive-only path marks already carried on val,
