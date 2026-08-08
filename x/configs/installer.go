@@ -15,6 +15,7 @@ import (
 	"github.com/opentofu/opentofu/internal/getmodules"
 	"github.com/opentofu/opentofu/internal/initwd"
 	"github.com/opentofu/opentofu/internal/registry"
+	"github.com/opentofu/svchost/disco"
 )
 
 // traceModuleHooks logs each module download/install into the execution trace
@@ -46,7 +47,14 @@ type Installer struct {
 
 // NewInstaller creates a module installer that downloads modules into modulesDir.
 // The modulesDir will be created if it does not exist.
-func NewInstaller(modulesDir string) (*Installer, error) {
+//
+// services carries the host credentials used to reach a module registry; pass
+// the same object the rest of the host uses (see x/cliconfig.NewServiceDiscovery)
+// so a private registry authenticates. It is the same credential set that
+// reaches provider registries and the `remote`-protocol backends — one host,
+// one token. A nil services falls back to anonymous discovery, which reaches
+// public registries only.
+func NewInstaller(ctx context.Context, modulesDir string, services *disco.Disco) (*Installer, error) {
 	if err := os.MkdirAll(modulesDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create modules directory: %w", err)
 	}
@@ -57,8 +65,16 @@ func NewInstaller(modulesDir string) (*Installer, error) {
 		return nil, fmt.Errorf("failed to create config loader: %w", err)
 	}
 
-	ctx := context.Background()
-	regClient := registry.NewClient(ctx, nil, nil)
+	// A nil services is what registry.NewClient itself substitutes an anonymous
+	// disco for, so it is passed through rather than filled in here.
+	regClient := registry.NewClient(ctx, services, nil)
+
+	// Module *packages* (git, https, S3, OCI) are fetched by go-getter, which
+	// takes its credentials from the environment and from the source address
+	// rather than from service discovery. Only the registry protocol —
+	// resolving a registry address to a package address — authenticates through
+	// services. A fetcher environment would additionally supply an OCI
+	// credential store; turf does not configure one yet.
 	fetcher := getmodules.NewPackageFetcher(ctx, nil)
 
 	inst := initwd.NewModuleInstaller(modulesDir, loader, regClient, fetcher)
