@@ -30,6 +30,21 @@ type (
 	OutputValue         = addrs.OutputValue
 )
 
+// Reference subjects — the typed forms an expression reference can name.
+// Referenceable is the interface every subject implements; the rest are the
+// concrete subjects a consumer type-switches over. Exposed so a consumer can
+// classify a reference from its typed subject instead of re-parsing the
+// rendered string.
+type (
+	Referenceable            = addrs.Referenceable
+	InputVariable            = addrs.InputVariable
+	LocalValue               = addrs.LocalValue
+	ModuleCall               = addrs.ModuleCall
+	ModuleCallInstance       = addrs.ModuleCallInstance
+	ModuleCallOutput         = addrs.ModuleCallOutput
+	ModuleCallInstanceOutput = addrs.ModuleCallInstanceOutput
+)
+
 // Resource modes.
 const (
 	ManagedResourceMode = addrs.ManagedResourceMode
