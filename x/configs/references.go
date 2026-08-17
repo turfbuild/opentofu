@@ -21,6 +21,13 @@ type ExtractedReference struct {
 
 	// Type classifies the reference (resource, data, variable, local, module, etc.)
 	Type ReferenceType
+
+	// Ref is the typed subject Subject and Type are rendered from — OpenTofu's
+	// own addrs.Referenceable, exposed through the x/addrs aliases. Consumers
+	// that need the reference's structure (the resource address, an instance
+	// key, a module call's output name) should read it here rather than
+	// re-parsing Subject.
+	Ref addrs.Referenceable
 }
 
 // ReferenceType classifies the type of reference.
@@ -53,6 +60,7 @@ func ExtractReferences(expr hcl.Expression) ([]ExtractedReference, error) {
 		result = append(result, ExtractedReference{
 			Subject: formatSubject(ref.Subject),
 			Type:    classifyReference(ref.Subject),
+			Ref:     ref.Subject,
 		})
 	}
 	return result, nil
