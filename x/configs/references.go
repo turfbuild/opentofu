@@ -201,6 +201,12 @@ func ExtractReferencesFromBody(body hcl.Body) ([]ExtractedReference, error) {
 
 // extractRefsFromSyntaxBody recursively extracts references from an hclsyntax.Body,
 // walking both attributes and nested blocks.
+//
+// It walks what the body still *carries as configuration* — see visible.go. A
+// meta-argument a decode has already lifted into its own field is not
+// configuration: `provider = aws.west` is a provider reference, and reading it
+// here would report a reference to a resource named `aws.west` that nobody
+// declared. Whoever consumed it owns the references it holds.
 func extractRefsFromSyntaxBody(body *hclsyntax.Body) []ExtractedReference {
 	if body == nil {
 		return nil
@@ -208,8 +214,7 @@ func extractRefsFromSyntaxBody(body *hclsyntax.Body) []ExtractedReference {
 
 	var allRefs []ExtractedReference
 
-	// Walk attributes
-	for _, attr := range body.Attributes {
+	for _, attr := range visibleAttributes(body) {
 		refs, err := ExtractReferences(attr.Expr)
 		if err != nil {
 			continue
@@ -217,8 +222,10 @@ func extractRefsFromSyntaxBody(body *hclsyntax.Body) []ExtractedReference {
 		allRefs = append(allRefs, refs...)
 	}
 
-	// Walk nested blocks recursively
-	for _, block := range body.Blocks {
+	// Nested blocks recursively: a reference can sit any number of blocks down
+	// (a provider's `resource {}` shape, a nested `metadata {}`), which is why
+	// the whole body is walked rather than its top-level attributes.
+	for _, block := range visibleBlocks(body) {
 		blockRefs := extractRefsFromSyntaxBody(block.Body)
 		allRefs = append(allRefs, blockRefs...)
 	}

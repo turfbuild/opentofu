@@ -541,3 +541,47 @@ func TestExtractBodyToConfig(t *testing.T) {
 		}
 	})
 }
+
+// The provider-block counterpart of the reference walker's rule: a meta-argument
+// the decode lifted into its own field is not provider configuration, and
+// handing one back is how `provider "random" { alias = "extra" }` came back as
+// config {"alias": "extra"} and was rejected on the way to the plugin.
+func TestExtractBodyToConfigIgnoresWhatTheDecodeConsumed(t *testing.T) {
+	body := parseBody(t, `
+		alias   = "west"
+		version = "~> 3.0"
+		region  = "us-west-2"
+		assume_role {
+			role_arn = "arn:aws:iam::1:role/r"
+		}
+	`)
+
+	// What a provider decode consumes; see configs' providerBlockSchema.
+	_, remain, diags := body.PartialContent(&hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "alias"}, {Name: "version"}, {Name: "for_each"},
+			{Name: "count"}, {Name: "depends_on"}, {Name: "source"},
+		},
+	})
+	if diags.HasErrors() {
+		t.Fatalf("partial content: %s", diags.Error())
+	}
+
+	got, err := ExtractBodyToConfig(remain, literalEvaluator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := got["alias"]; ok {
+		t.Errorf("alias is a meta-argument, not provider config: %#v", got)
+	}
+	if _, ok := got["version"]; ok {
+		t.Errorf("version is a meta-argument, not provider config: %#v", got)
+	}
+	if got["region"] != "us-west-2" {
+		t.Errorf("real config lost: %#v", got)
+	}
+	if role, ok := got["assume_role"].(map[string]any); !ok || role["role_arn"] == nil {
+		t.Errorf("nested config block lost: %#v", got["assume_role"])
+	}
+}

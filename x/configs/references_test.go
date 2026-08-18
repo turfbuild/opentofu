@@ -187,3 +187,81 @@ func TestFormatTraversal_WithIndex(t *testing.T) {
 		t.Errorf("FormatTraversal() = %q, want %q", result, expected)
 	}
 }
+
+// A decoded block hands back a body that still carries every attribute and
+// block the source had, plus a private note of which ones it took. Reading the
+// maps directly reads the whole block again — so `provider = aws.west`, an
+// address the decode already lifted into its own field, comes back looking like
+// a reference to a resource named `aws.west` that nobody declared.
+func TestExtractReferencesFromBodyIgnoresWhatTheDecodeConsumed(t *testing.T) {
+	body := parseHCLBody(t, `
+		provider     = aws.west
+		count        = length(aws_subnet.counted)
+		depends_on   = [aws_vpc.declared]
+		ami          = aws_ami.chosen.id
+		lifecycle {
+		  replace_triggered_by = [aws_instance.trigger]
+		}
+		tags {
+		  owner = aws_iam_user.owner.name
+		}
+	`)
+
+	// What a resource decode consumes; see configs.ResourceBlockSchema.
+	_, remain, diags := body.PartialContent(&hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "count"}, {Name: "for_each"}, {Name: "provider"}, {Name: "depends_on"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{{Type: "lifecycle"}},
+	})
+	if diags.HasErrors() {
+		t.Fatalf("partial content: %s", diags.Error())
+	}
+
+	refs, err := ExtractReferencesFromBody(remain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := UniqueReferences(refs)
+	sort.Strings(got)
+
+	// The `tags` block survives: nothing consumed it, and a reference sitting a
+	// block down is the whole reason the walk recurses.
+	want := []string{"aws_ami.chosen", "aws_iam_user.owner"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// The same body, undecoded, is all configuration — nothing has been consumed,
+// so nothing is withheld. This is what keeps the fix from being a filter on
+// attribute names: an action's `config {}` block may legitimately carry an
+// attribute called `provider` or `count`.
+func TestExtractReferencesFromBodyKeepsEverythingWhenNothingWasConsumed(t *testing.T) {
+	body := parseHCLBody(t, `
+		provider = aws.west
+		ami      = aws_ami.chosen.id
+	`)
+
+	refs, err := ExtractReferencesFromBody(body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := UniqueReferences(refs)
+	sort.Strings(got)
+
+	want := []string{"aws.west", "aws_ami.chosen"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
