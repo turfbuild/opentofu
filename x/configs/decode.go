@@ -276,26 +276,30 @@ func extractBody(body *hclsyntax.Body, eval ExprEvaluator) (map[string]any, erro
 
 	result := make(map[string]any)
 
-	// Attributes.
-	for name, attr := range body.Attributes {
+	// Attributes the body still carries as configuration — a meta-argument a
+	// decode has lifted into its own field is not part of the config map, and
+	// handing one back is how `provider "random" { alias = "extra" }` used to
+	// come back as config {"alias": "extra"}. See visible.go.
+	for _, attr := range visibleAttributes(body) {
 		val, err := eval(attr.Expr)
 		if err != nil {
-			return nil, fmt.Errorf("evaluating attribute %q: %w", name, err)
+			return nil, fmt.Errorf("evaluating attribute %q: %w", attr.Name, err)
 		}
 		if val != nil {
-			result[name] = val
+			result[attr.Name] = val
 		}
 	}
 
 	// Blocks, grouped by type name (source order preserved within a type).
+	blocksVisible := visibleBlocks(body)
 	seen := make(map[string]bool)
-	for _, block := range body.Blocks {
+	for _, block := range blocksVisible {
 		if seen[block.Type] {
 			continue
 		}
 		seen[block.Type] = true
 
-		blocks := blocksOfType(body, block.Type)
+		blocks := blocksOfType(blocksVisible, block.Type)
 		labeled := false
 		for _, b := range blocks {
 			if len(b.Labels) > 0 {
@@ -343,11 +347,10 @@ func extractBody(body *hclsyntax.Body, eval ExprEvaluator) (map[string]any, erro
 	return result, nil
 }
 
-// blocksOfType returns all blocks in the body with the given type name, in
-// source order.
-func blocksOfType(body *hclsyntax.Body, typeName string) []*hclsyntax.Block {
+// blocksOfType returns the blocks with the given type name, in source order.
+func blocksOfType(blocks []*hclsyntax.Block, typeName string) []*hclsyntax.Block {
 	var result []*hclsyntax.Block
-	for _, block := range body.Blocks {
+	for _, block := range blocks {
 		if block.Type == typeName {
 			result = append(result, block)
 		}
