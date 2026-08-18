@@ -5,6 +5,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/opentofu/opentofu/internal/addrs"
 )
 
 // Action represents an "action" block in a configuration module: a
@@ -23,6 +25,7 @@ type Action struct {
 	Name string
 
 	ProviderConfigRef *ProviderConfigRef
+	Provider          addrs.Provider
 
 	Count   hcl.Expression
 	ForEach hcl.Expression
@@ -37,6 +40,29 @@ type Action struct {
 
 func (a *Action) moduleUniqueKey() string {
 	return fmt.Sprintf("action.%s.%s", a.Type, a.Name)
+}
+
+// ImpliedProvider returns the provider type name an action type implies when it
+// carries no explicit `provider` argument — the segment before the first
+// underscore, the same rule addrs.Resource.ImpliedProvider applies to a
+// resource type.
+func (a *Action) ImpliedProvider() string {
+	return addrs.Resource{Type: a.Type}.ImpliedProvider()
+}
+
+// ProviderConfigAddr returns the address of the provider configuration that
+// should be used for this action, defaulting to the implied provider when no
+// explicit "provider" argument was given. Mirror of Resource.ProviderConfigAddr.
+func (a *Action) ProviderConfigAddr() addrs.LocalProviderConfig {
+	if a.ProviderConfigRef == nil {
+		return addrs.LocalProviderConfig{
+			LocalName: a.ImpliedProvider(),
+		}
+	}
+	return addrs.LocalProviderConfig{
+		LocalName: a.ProviderConfigRef.Name,
+		Alias:     a.ProviderConfigRef.Alias,
+	}
 }
 
 // ActionTriggerEvent is one of the six resource lifecycle edges an

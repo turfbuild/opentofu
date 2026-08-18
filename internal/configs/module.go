@@ -563,6 +563,21 @@ func (m *Module) appendFile(file *File) hcl.Diagnostics {
 			continue
 		}
 		m.Actions[key] = a
+
+		// set the provider FQN for the action, the same way the resource loops
+		// above do: an explicit `provider` argument resolves through this
+		// module's required_providers, and an absent one through the type
+		// prefix it implies.
+		if a.ProviderConfigRef != nil {
+			a.Provider = m.ProviderForLocalConfig(a.ProviderConfigAddr())
+		} else {
+			implied, err := addrs.ParseProviderPart(a.ImpliedProvider())
+			if err == nil {
+				a.Provider = m.ImpliedProviderForUnqualifiedType(implied)
+			}
+			// No diagnostic: an action type that cannot imply a valid provider
+			// name is already reported by the block decoder.
+		}
 	}
 
 	// Handle the provider associations for all data resources together.
