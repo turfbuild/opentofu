@@ -21,6 +21,37 @@ type Schemas = tofu.Schemas
 // the ProviderAddr.Provider carried on the plan's resource changes.
 type Provider = addrs.Provider
 
+// ResourceSchema is one resource type's configuration schema together with the
+// version stamps the provider declared for it.
+//
+// The versions are not decoration. jsonstate marshalling compares Version
+// against the schema version recorded on each state object and fails the whole
+// marshal when the two disagree, so a caller that leaves it zero can only
+// render prior state for resource types whose provider is still at version 0.
+// IdentityVersion is reported as identity_schema_version on planned values.
+//
+// The identity schema itself (providers.Schema.IdentitySchema) is deliberately
+// not part of this type: marshalling reads the identity version but never the
+// identity block, so carrying it would add a conversion no consumer reads.
+type ResourceSchema struct {
+	// Block is the resource type's configuration schema.
+	Block *configschema.Block
+	// Version is the provider's state schema version for this resource type.
+	Version int64
+	// IdentityVersion is the provider's resource-identity schema version for
+	// this resource type; zero when the type declares no identity.
+	IdentityVersion int64
+}
+
+// providerSchema converts to the internal per-schema representation.
+func (rs ResourceSchema) providerSchema() providers.Schema {
+	return providers.Schema{
+		Block:                 rs.Block,
+		Version:               rs.Version,
+		IdentitySchemaVersion: rs.IdentityVersion,
+	}
+}
+
 // NewSchemas returns an empty Schemas ready to receive providers via SetProvider.
 func NewSchemas() *Schemas {
 	return &tofu.Schemas{
@@ -29,20 +60,23 @@ func NewSchemas() *Schemas {
 	}
 }
 
-// SetProvider stores a provider's config/resource/data-source schema blocks in
-// s under addr, in the form jsonplan/jsonstate marshalling expects. It replaces
+// SetProvider stores a provider's config/resource/data-source schemas in s
+// under addr, in the form jsonplan/jsonstate marshalling expects. It replaces
 // any existing entry for addr.
-func SetProvider(s *Schemas, addr Provider, config *configschema.Block, resources, dataSources map[string]*configschema.Block) {
+//
+// The provider's own configuration schema is version-free: only resource types
+// carry a state schema version.
+func SetProvider(s *Schemas, addr Provider, config *configschema.Block, resources, dataSources map[string]ResourceSchema) {
 	ps := providers.ProviderSchema{
 		Provider:      providers.Schema{Block: config},
 		ResourceTypes: make(map[string]providers.Schema, len(resources)),
 		DataSources:   make(map[string]providers.Schema, len(dataSources)),
 	}
-	for name, block := range resources {
-		ps.ResourceTypes[name] = providers.Schema{Block: block}
+	for name, rs := range resources {
+		ps.ResourceTypes[name] = rs.providerSchema()
 	}
-	for name, block := range dataSources {
-		ps.DataSources[name] = providers.Schema{Block: block}
+	for name, rs := range dataSources {
+		ps.DataSources[name] = rs.providerSchema()
 	}
 	s.Providers[addr] = ps
 }
