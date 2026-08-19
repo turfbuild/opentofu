@@ -32,6 +32,10 @@ type Action = configs.Action
 type ActionTrigger = configs.ActionTrigger
 type ActionTriggerEvent = configs.ActionTriggerEvent
 type Removed = configs.Removed
+
+// Import is the `import {}` state-motion block: an instruction to adopt an
+// existing remote object into state at plan time rather than create it.
+type Import = configs.Import
 type ProviderMeta = configs.ProviderMeta
 type StaticModuleCall = configs.StaticModuleCall
 
