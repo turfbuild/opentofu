@@ -34,3 +34,18 @@ func HasEphemeralMark(val cty.Value) bool {
 func MarkSensitive(val cty.Value) cty.Value {
 	return val.Mark(marks.Sensitive)
 }
+
+// ContainsSensitiveMark reports whether val carries the Sensitive mark anywhere
+// within it, not merely at the top level. Where HasSensitiveMark answers the
+// cardinality question (a marked collection makes every instance key a leak),
+// this answers the value question: an object whose one attribute is sensitive is
+// as unusable as a wholly sensitive one for something that must be written down
+// in the clear — an import identity, say. Matches OpenTofu's marks.Contains.
+func ContainsSensitiveMark(val cty.Value) bool {
+	return marks.Contains(val, marks.Sensitive)
+}
+
+// ContainsEphemeralMark is the same deep test for the Ephemeral mark.
+func ContainsEphemeralMark(val cty.Value) bool {
+	return marks.Contains(val, marks.Ephemeral)
+}
