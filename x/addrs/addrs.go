@@ -28,6 +28,17 @@ type (
 	ResourceMode        = addrs.ResourceMode
 	AbsOutputValue      = addrs.AbsOutputValue
 	OutputValue         = addrs.OutputValue
+	Module              = addrs.Module
+)
+
+// Move endpoints — the two halves of a `moved {}` block as written in
+// configuration. MoveEndpoint's internals are unexported, so the only thing a
+// consumer can do with one is render it (String) or resolve it against the
+// module it was declared in (ConfigMoveable), which yields either a
+// ConfigResource or a Module.
+type (
+	MoveEndpoint   = addrs.MoveEndpoint
+	ConfigMoveable = addrs.ConfigMoveable
 )
 
 // Reference subjects — the typed forms an expression reference can name.
