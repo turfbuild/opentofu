@@ -49,3 +49,13 @@ func ContainsSensitiveMark(val cty.Value) bool {
 func ContainsEphemeralMark(val cty.Value) bool {
 	return marks.Contains(val, marks.Ephemeral)
 }
+
+// MarkEphemeral returns val with the Ephemeral mark applied at the top level —
+// the constructive twin of MarkSensitive. OpenTofu applies this mark when an
+// `ephemeral = true` input variable is read (evaluate.go's GetInputVariable);
+// a root module driving the walk itself needs the same constructor so that
+// ephemeral values it introduces are recognized by every mark inspection
+// (ContainsEphemeralMark, UnmarkDeep, the non-ephemeral-context gates).
+func MarkEphemeral(val cty.Value) cty.Value {
+	return val.Mark(marks.Ephemeral)
+}

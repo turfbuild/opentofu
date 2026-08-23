@@ -441,6 +441,100 @@ func TestDecodeBodySensitivePaths(t *testing.T) {
 	})
 }
 
+// TestDecodeBodyEphemeralPaths pins the Ephemeral twin: it finds the top-level
+// elements whose config carries an Ephemeral mark (attribute directly, or
+// buried in a nested block), ignores Sensitive-only values, and reports
+// nothing on an unmarked body — the refusal gate must not fire spuriously.
+func TestDecodeBodyEphemeralPaths(t *testing.T) {
+	markByPrefix := func(v cty.Value) cty.Value {
+		if v.Type() == cty.String && !v.IsNull() {
+			switch s := v.AsString(); {
+			case len(s) >= 3 && s[:3] == "EPH":
+				return v.Mark(marks.Ephemeral)
+			case len(s) >= 3 && s[:3] == "SEC":
+				return v.Mark(marks.Sensitive)
+			}
+		}
+		return v
+	}
+	eval := func(expr hcl.Expression) (cty.Value, error) {
+		v, diags := expr.Value(nil)
+		if diags.HasErrors() {
+			return cty.NilVal, fmt.Errorf("%s", diags.Error())
+		}
+		return markByPrefix(v), nil
+	}
+
+	t.Run("ephemeral attribute found, sensitive ignored", func(t *testing.T) {
+		body := parseBody(t, `
+			name   = "plain"
+			token  = "EPH-xyz"
+			secret = "SEC-xyz"
+		`)
+		schema := &configschema.Block{
+			Attributes: map[string]*configschema.Attribute{
+				"name":   {Type: cty.String, Optional: true},
+				"token":  {Type: cty.String, Optional: true},
+				"secret": {Type: cty.String, Optional: true},
+			},
+		}
+		paths, err := DecodeBodyEphemeralPaths(body, schema, eval)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(paths) != 1 {
+			t.Fatalf("want 1 path, got %d: %#v", len(paths), paths)
+		}
+		if g, ok := paths[0][0].(cty.GetAttrStep); !ok || g.Name != "token" {
+			t.Errorf("want GetAttr{token}, got %#v", paths[0])
+		}
+	})
+
+	t.Run("ephemeral inside a nested block marks the block element", func(t *testing.T) {
+		body := parseBody(t, `
+			settings {
+				password = "EPH-abc"
+			}
+		`)
+		schema := &configschema.Block{
+			BlockTypes: map[string]*configschema.NestedBlock{
+				"settings": {
+					Nesting: configschema.NestingSingle,
+					Block: configschema.Block{
+						Attributes: map[string]*configschema.Attribute{
+							"password": {Type: cty.String, Optional: true},
+						},
+					},
+				},
+			},
+		}
+		paths, err := DecodeBodyEphemeralPaths(body, schema, eval)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(paths) != 1 {
+			t.Fatalf("want 1 path, got %d: %#v", len(paths), paths)
+		}
+		if g, ok := paths[0][0].(cty.GetAttrStep); !ok || g.Name != "settings" {
+			t.Errorf("want GetAttr{settings}, got %#v", paths[0])
+		}
+	})
+
+	t.Run("unmarked body yields no paths", func(t *testing.T) {
+		body := parseBody(t, `name = "plain"`)
+		schema := &configschema.Block{
+			Attributes: map[string]*configschema.Attribute{"name": {Type: cty.String, Optional: true}},
+		}
+		paths, err := DecodeBodyEphemeralPaths(body, schema, eval)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(paths) != 0 {
+			t.Errorf("want no paths, got %#v", paths)
+		}
+	})
+}
+
 // TestExtractBodyToConfig covers the schema-less extractor used by config_init:
 // nested blocks are preserved (a single block as an object, repeated blocks as a
 // list, labeled blocks as a label-keyed map), attributes are evaluated, and a

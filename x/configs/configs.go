@@ -39,6 +39,23 @@ type Import = configs.Import
 type ProviderMeta = configs.ProviderMeta
 type StaticModuleCall = configs.StaticModuleCall
 
+// VariableParsingMode selects how a string-form variable value (a -var
+// equivalent, a TF_VAR_ environment variable) is parsed: primitive-typed
+// variables take the raw string literally, everything else parses it as an
+// HCL expression. Each declared Variable carries its mode in .ParsingMode;
+// call mode.Parse(name, rawString) to get the value.
+type VariableParsingMode = configs.VariableParsingMode
+
+const (
+	VariableParseLiteral = configs.VariableParseLiteral
+	VariableParseHCL     = configs.VariableParseHCL
+)
+
+// CheckRule is one `validation {}` block of a variable declaration (also used
+// by check blocks and pre/postconditions): a condition expression plus an
+// error_message expression. A Variable carries its rules in .Validations.
+type CheckRule = configs.CheckRule
+
 // Parser for HCL configuration files.
 type Parser = configs.Parser
 
