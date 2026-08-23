@@ -109,11 +109,60 @@ func DecodeBodySensitivePaths(body hcl.Body, schema *configschema.Block, eval Ma
 	return out, nil
 }
 
+// DecodeBodyEphemeralPaths is the Ephemeral twin of DecodeBodySensitivePaths:
+// it returns a path for each top-level attribute or block whose evaluated
+// config carries an Ephemeral mark anywhere beneath it. Where the sensitive
+// variant feeds redaction (MarkWithPaths), this one feeds refusal — an
+// ephemeral value flowing into a resource or data-source body is Terraform's
+// "Ephemeral value used in non-ephemeral context" error (no released provider
+// surface accepts one until write-only attributes land), and the returned
+// paths name the offending elements. Same top-level granularity, same reasons.
+func DecodeBodyEphemeralPaths(body hcl.Body, schema *configschema.Block, eval MarkedExprEvaluator) ([]cty.Path, error) {
+	if body == nil || schema == nil {
+		return nil, nil
+	}
+	content, _, diags := body.PartialContent(hclSchemaFor(schema))
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("decoding body: %s", diags.Error())
+	}
+	var out []cty.Path
+	for name := range schema.Attributes {
+		attr, exists := content.Attributes[name]
+		if !exists {
+			continue
+		}
+		v, err := eval(attr.Expr)
+		if err != nil || v == cty.NilVal {
+			continue
+		}
+		if valueHasMark(v, marks.Ephemeral) {
+			out = append(out, cty.GetAttrPath(name))
+		}
+	}
+	for name, blockType := range schema.BlockTypes {
+		for _, block := range content.Blocks.OfType(name) {
+			if bodyHasMark(block.Body, &blockType.Block, eval, marks.Ephemeral) {
+				out = append(out, cty.GetAttrPath(name))
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 // bodyHasSensitive reports whether any attribute in body (recursing into nested
 // blocks) evaluates to a value carrying a Sensitive mark. A per-attribute
 // evaluation error is treated as not sensitive: an unresolved reference has no
 // mark, and a partial decode should still redact whatever it can resolve.
 func bodyHasSensitive(body hcl.Body, schema *configschema.Block, eval MarkedExprEvaluator) bool {
+	return bodyHasMark(body, schema, eval, marks.Sensitive)
+}
+
+// bodyHasMark reports whether any attribute in body (recursing into nested
+// blocks) evaluates to a value carrying the given mark. A per-attribute
+// evaluation error is treated as unmarked: an unresolved reference has no
+// mark, and a partial decode should still find whatever it can resolve.
+func bodyHasMark(body hcl.Body, schema *configschema.Block, eval MarkedExprEvaluator, mark any) bool {
 	if body == nil || schema == nil {
 		return false
 	}
@@ -130,13 +179,13 @@ func bodyHasSensitive(body hcl.Body, schema *configschema.Block, eval MarkedExpr
 		if err != nil || v == cty.NilVal {
 			continue
 		}
-		if valueHasSensitive(v) {
+		if valueHasMark(v, mark) {
 			return true
 		}
 	}
 	for name, blockType := range schema.BlockTypes {
 		for _, block := range content.Blocks.OfType(name) {
-			if bodyHasSensitive(block.Body, &blockType.Block, eval) {
+			if bodyHasMark(block.Body, &blockType.Block, eval, mark) {
 				return true
 			}
 		}
@@ -146,9 +195,14 @@ func bodyHasSensitive(body hcl.Body, schema *configschema.Block, eval MarkedExpr
 
 // valueHasSensitive reports whether val carries the Sensitive mark anywhere.
 func valueHasSensitive(val cty.Value) bool {
+	return valueHasMark(val, marks.Sensitive)
+}
+
+// valueHasMark reports whether val carries the given mark anywhere.
+func valueHasMark(val cty.Value, mark any) bool {
 	_, pvms := val.UnmarkDeepWithPaths()
 	for _, pvm := range pvms {
-		if _, ok := pvm.Marks[marks.Sensitive]; ok {
+		if _, ok := pvm.Marks[mark]; ok {
 			return true
 		}
 	}
