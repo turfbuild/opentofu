@@ -36,6 +36,7 @@ type ReferenceType string
 const (
 	ReferenceTypeResource  ReferenceType = "resource"
 	ReferenceTypeData      ReferenceType = "data"
+	ReferenceTypeEphemeral ReferenceType = "ephemeral"
 	ReferenceTypeVariable  ReferenceType = "variable"
 	ReferenceTypeLocal     ReferenceType = "local"
 	ReferenceTypeModule    ReferenceType = "module"
@@ -70,15 +71,9 @@ func ExtractReferences(expr hcl.Expression) ([]ExtractedReference, error) {
 func classifyReference(subject addrs.Referenceable) ReferenceType {
 	switch s := subject.(type) {
 	case addrs.Resource:
-		if s.Mode == addrs.DataResourceMode {
-			return ReferenceTypeData
-		}
-		return ReferenceTypeResource
+		return classifyResourceMode(s.Mode)
 	case addrs.ResourceInstance:
-		if s.Resource.Mode == addrs.DataResourceMode {
-			return ReferenceTypeData
-		}
-		return ReferenceTypeResource
+		return classifyResourceMode(s.Resource.Mode)
 	case addrs.InputVariable:
 		return ReferenceTypeVariable
 	case addrs.LocalValue:
@@ -106,14 +101,30 @@ func classifyReference(subject addrs.Referenceable) ReferenceType {
 	}
 }
 
+// classifyResourceMode maps a resource mode onto its reference type. The three
+// modes are distinct kinds of object, not variations on one: they are declared
+// by different block types, and a consumer keying dependency targets off a
+// reference has to be able to tell them apart.
+func classifyResourceMode(mode addrs.ResourceMode) ReferenceType {
+	switch mode {
+	case addrs.DataResourceMode:
+		return ReferenceTypeData
+	case addrs.EphemeralResourceMode:
+		return ReferenceTypeEphemeral
+	default:
+		return ReferenceTypeResource
+	}
+}
+
 // formatSubject converts a Referenceable to a human-readable string.
 func formatSubject(subject addrs.Referenceable) string {
 	switch s := subject.(type) {
 	case addrs.Resource:
-		if s.Mode == addrs.DataResourceMode {
-			return fmt.Sprintf("data.%s.%s", s.Type, s.Name)
-		}
-		return fmt.Sprintf("%s.%s", s.Type, s.Name)
+		// Resource.String() already renders each mode's prefix — bare for
+		// managed, `data.` for data, `ephemeral.` for ephemeral. Rendering the
+		// prefix here by hand is what let ephemeral fall through as bare and
+		// collide with a managed resource of the same type and name.
+		return s.String()
 	case addrs.ResourceInstance:
 		base := formatSubject(s.Resource)
 		if s.Key != addrs.NoKey {
@@ -151,7 +162,7 @@ func formatSubject(subject addrs.Referenceable) string {
 func ResourceReferences(refs []ExtractedReference) []string {
 	var result []string
 	for _, ref := range refs {
-		if ref.Type == ReferenceTypeResource || ref.Type == ReferenceTypeData {
+		if ref.Type == ReferenceTypeResource || ref.Type == ReferenceTypeData || ref.Type == ReferenceTypeEphemeral {
 			result = append(result, ref.Subject)
 		}
 	}

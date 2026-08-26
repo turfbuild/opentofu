@@ -265,3 +265,82 @@ func TestExtractReferencesFromBodyKeepsEverythingWhenNothingWasConsumed(t *testi
 		}
 	}
 }
+
+// An ephemeral reference must render with its `ephemeral.` prefix, exactly as
+// a data reference renders with `data.`. Consumers key graph dependency
+// targets off Subject, so an ephemeral rendered bare would be indistinguishable
+// from a managed resource of the same type and name — two different objects
+// collapsing onto one node.
+func TestExtractReferencesDistinguishesEphemeralFromManaged(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		wantSubject string
+		wantType    ReferenceType
+	}{
+		{
+			name:        "ephemeral whole object",
+			expr:        "ephemeral.vault_kv_secret.creds",
+			wantSubject: "ephemeral.vault_kv_secret.creds",
+			wantType:    ReferenceTypeEphemeral,
+		},
+		{
+			name:        "ephemeral with attribute",
+			expr:        "ephemeral.vault_kv_secret.creds.token",
+			wantSubject: "ephemeral.vault_kv_secret.creds",
+			wantType:    ReferenceTypeEphemeral,
+		},
+		{
+			name:        "ephemeral with instance key",
+			expr:        `ephemeral.vault_kv_secret.creds["a"].token`,
+			wantSubject: `ephemeral.vault_kv_secret.creds["a"]`,
+			wantType:    ReferenceTypeEphemeral,
+		},
+		{
+			name:        "managed resource of the same type and name",
+			expr:        "vault_kv_secret.creds.token",
+			wantSubject: "vault_kv_secret.creds",
+			wantType:    ReferenceTypeResource,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, diags := hclsyntax.ParseExpression([]byte(tt.expr), "test.tf", hcl.Pos{Line: 1, Column: 1})
+			if diags.HasErrors() {
+				t.Fatalf("failed to parse expression: %s", diags.Error())
+			}
+			refs, err := ExtractReferences(expr)
+			if err != nil {
+				t.Fatalf("ExtractReferences() error = %v", err)
+			}
+			if len(refs) != 1 {
+				t.Fatalf("got %d references, want 1: %#v", len(refs), refs)
+			}
+			if refs[0].Subject != tt.wantSubject {
+				t.Errorf("Subject = %q, want %q", refs[0].Subject, tt.wantSubject)
+			}
+			if refs[0].Type != tt.wantType {
+				t.Errorf("Type = %q, want %q", refs[0].Type, tt.wantType)
+			}
+		})
+	}
+}
+
+// ResourceReferences is how a consumer asks "what objects does this expression
+// depend on"; an ephemeral resource is such an object.
+func TestResourceReferencesIncludesEphemeral(t *testing.T) {
+	expr, diags := hclsyntax.ParseExpression(
+		[]byte("ephemeral.vault_kv_secret.creds.token"), "test.tf", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatalf("failed to parse expression: %s", diags.Error())
+	}
+	refs, err := ExtractReferences(expr)
+	if err != nil {
+		t.Fatalf("ExtractReferences() error = %v", err)
+	}
+	got := ResourceReferences(refs)
+	if len(got) != 1 || got[0] != "ephemeral.vault_kv_secret.creds" {
+		t.Errorf("ResourceReferences() = %v, want [ephemeral.vault_kv_secret.creds]", got)
+	}
+}
