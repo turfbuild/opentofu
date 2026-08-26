@@ -108,9 +108,14 @@ func resolveRef(scope *Scope, subj addrs.Referenceable) (cty.Value, bool) {
 			return v, true
 		}
 	case addrs.Resource:
-		store := scope.Resources
-		if s.Mode == addrs.DataResourceMode {
+		var store map[string]cty.Value
+		switch s.Mode {
+		case addrs.DataResourceMode:
 			store = scope.DataSources
+		case addrs.EphemeralResourceMode:
+			store = scope.Ephemerals
+		default:
+			store = scope.Resources
 		}
 		if v, ok := lookupResourceLike(store, s.Type+"."+s.Name); ok {
 			return v, true

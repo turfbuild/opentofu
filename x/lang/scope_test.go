@@ -156,3 +156,67 @@ func TestScopeModuleResolvesDeclaredOutputsOnly(t *testing.T) {
 		t.Fatalf("error lacks the declared-outputs guidance: %v", err)
 	}
 }
+
+// An ephemeral resource resolves from its own store, and a managed resource of
+// the same type and name resolves from its — the two namespaces are distinct
+// all the way through evaluation, not just in how they are written.
+func TestScopeResolvesEphemeralSeparatelyFromManaged(t *testing.T) {
+	s := NewScope()
+
+	s.SetEphemeral("vault_kv_secret.creds", cty.ObjectVal(map[string]cty.Value{
+		"token": cty.StringVal("ephemeral-token"),
+	}))
+	s.SetResource("vault_kv_secret.creds", cty.ObjectVal(map[string]cty.Value{
+		"token": cty.StringVal("managed-token"),
+	}))
+
+	assertExprResult(t, s, "ephemeral.vault_kv_secret.creds.token", cty.StringVal("ephemeral-token"))
+	assertExprResult(t, s, "vault_kv_secret.creds.token", cty.StringVal("managed-token"))
+}
+
+// count/for_each instances land at flat keyed entries and aggregate at lookup
+// time, exactly as they do for resources and data sources.
+func TestScopeAggregatesKeyedEphemeralInstances(t *testing.T) {
+	s := NewScope()
+
+	s.SetEphemeral(`vault_kv_secret.creds["a"]`, cty.ObjectVal(map[string]cty.Value{
+		"token": cty.StringVal("token-a"),
+	}))
+	s.SetEphemeral(`vault_kv_secret.creds["b"]`, cty.ObjectVal(map[string]cty.Value{
+		"token": cty.StringVal("token-b"),
+	}))
+
+	assertExprResult(t, s, `ephemeral.vault_kv_secret.creds["b"].token`, cty.StringVal("token-b"))
+
+	s2 := NewScope()
+	s2.SetEphemeral("vault_kv_secret.creds[0]", cty.ObjectVal(map[string]cty.Value{
+		"token": cty.StringVal("token-0"),
+	}))
+	s2.SetEphemeral("vault_kv_secret.creds[1]", cty.ObjectVal(map[string]cty.Value{
+		"token": cty.StringVal("token-1"),
+	}))
+	assertExprResult(t, s2, "ephemeral.vault_kv_secret.creds[1].token", cty.StringVal("token-1"))
+}
+
+// The mark rides through evaluation: whatever an expression builds out of an
+// ephemeral value is itself ephemeral, which is what the refusal downstream
+// keys on.
+func TestScopeCarriesTheEphemeralMarkThroughEvaluation(t *testing.T) {
+	s := NewScope()
+	s.SetEphemeral("vault_kv_secret.creds", MarkEphemeral(cty.ObjectVal(map[string]cty.Value{
+		"token": cty.StringVal("ephemeral-token"),
+	})))
+
+	expr, diags := hclsyntax.ParseExpression(
+		[]byte(`"Bearer ${ephemeral.vault_kv_secret.creds.token}"`), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		t.Fatalf("parse: %s", diags.Error())
+	}
+	res, err := EvalExpression(expr, s)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+	if !HasEphemeralMark(res.Value) {
+		t.Errorf("evaluated value lost the ephemeral mark: %#v", res.Value)
+	}
+}

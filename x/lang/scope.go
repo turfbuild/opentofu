@@ -28,6 +28,15 @@ type Scope struct {
 	// Key format: "type.name" (e.g., "aws_ami.latest")
 	DataSources map[string]cty.Value
 
+	// Ephemerals holds opened ephemeral resource values (ephemeral.type.name.*)
+	// Key format: "type.name" (e.g., "vault_kv_secret.creds"), the same shape
+	// DataSources uses — the block type is the store, not part of the key.
+	//
+	// The values here are Ephemeral-marked, which is what stops one from being
+	// written into anything that persists. Nothing in this map is ever
+	// serialized: an ephemeral resource has no state slot at all.
+	Ephemerals map[string]cty.Value
+
 	// Outputs holds module output values (output.* or module.*.*)
 	Outputs map[string]cty.Value
 
@@ -71,6 +80,7 @@ func NewScope() *Scope {
 		Locals:      make(map[string]cty.Value),
 		Resources:   make(map[string]cty.Value),
 		DataSources: make(map[string]cty.Value),
+		Ephemerals:  make(map[string]cty.Value),
 		Outputs:     make(map[string]cty.Value),
 		Modules:     make(map[string]cty.Value),
 	}
@@ -108,6 +118,18 @@ func (s *Scope) SetDataSource(addr string, val cty.Value) {
 // addr should be in the format "type.name" (e.g., "aws_ami.latest").
 func (s *Scope) RemoveDataSource(addr string) {
 	delete(s.DataSources, addr)
+}
+
+// SetEphemeral sets an opened ephemeral resource's value.
+// addr should be in the format "type.name" (e.g., "vault_kv_secret.creds").
+func (s *Scope) SetEphemeral(addr string, val cty.Value) {
+	s.Ephemerals[addr] = val
+}
+
+// RemoveEphemeral removes an ephemeral resource from the scope.
+// addr should be in the format "type.name" (e.g., "vault_kv_secret.creds").
+func (s *Scope) RemoveEphemeral(addr string) {
+	delete(s.Ephemerals, addr)
 }
 
 // SetOutput sets an output value.
