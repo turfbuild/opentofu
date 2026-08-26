@@ -58,8 +58,9 @@ type (
 
 // Resource modes.
 const (
-	ManagedResourceMode = addrs.ManagedResourceMode
-	DataResourceMode    = addrs.DataResourceMode
+	ManagedResourceMode   = addrs.ManagedResourceMode
+	DataResourceMode      = addrs.DataResourceMode
+	EphemeralResourceMode = addrs.EphemeralResourceMode
 )
 
 // NoKey is the instance key for resources without count or for_each.
