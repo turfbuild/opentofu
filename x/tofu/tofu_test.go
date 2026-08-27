@@ -26,16 +26,19 @@ func testBlock() *configschema.Block {
 func TestSetProviderCarriesVersions(t *testing.T) {
 	addr := addrs.MustParseProviderSourceString("hashicorp/random")
 	s := NewSchemas()
-	SetProvider(s, addr,
-		testBlock(),
-		map[string]ResourceSchema{
+	SetProvider(s, addr, ProviderSchemas{
+		Config: testBlock(),
+		Resources: map[string]ResourceSchema{
 			"random_password": {Block: testBlock(), Version: 3, IdentityVersion: 1},
 			"random_pet":      {Block: testBlock()},
 		},
-		map[string]ResourceSchema{
+		DataSources: map[string]ResourceSchema{
 			"random_source": {Block: testBlock(), Version: 2},
 		},
-	)
+		Ephemerals: map[string]ResourceSchema{
+			"random_password": {Block: testBlock()},
+		},
+	})
 
 	schema, version := s.ResourceTypeConfig(addr, addrs.ManagedResourceMode, "random_password")
 	if schema == nil {
@@ -65,6 +68,25 @@ func TestSetProviderCarriesVersions(t *testing.T) {
 	if dataSchema.Version != 2 {
 		t.Errorf("data random_source stored version = %d, want 2", dataSchema.Version)
 	}
+
+	// The ephemeral entry deliberately reuses "random_password", a name the
+	// managed map also holds: the three modes are separate namespaces, and a
+	// lookup in one must not resolve out of another. Without this category
+	// populated at all, jsonconfig fails the whole marshal with "no schema
+	// found" for any configuration carrying an `ephemeral` block.
+	ephSchema, ephVersion := s.ResourceTypeConfig(addr, addrs.EphemeralResourceMode, "random_password")
+	if ephSchema == nil {
+		t.Fatal("no schema for ephemeral random_password")
+	}
+	if ephVersion != 0 {
+		t.Errorf("ephemeral random_password reported version %d, want 0", ephVersion)
+	}
+	if ephSchema.Version != 0 {
+		t.Errorf("ephemeral random_password stored version = %d, want 0 (it resolved the managed entry)", ephSchema.Version)
+	}
+	if sch, _ := s.ResourceTypeConfig(addr, addrs.EphemeralResourceMode, "random_pet"); sch != nil {
+		t.Error("random_pet is managed-only but resolved as an ephemeral type")
+	}
 }
 
 // TestSetProviderReplaces documents that a second call for the same address
@@ -72,12 +94,12 @@ func TestSetProviderCarriesVersions(t *testing.T) {
 func TestSetProviderReplaces(t *testing.T) {
 	addr := addrs.MustParseProviderSourceString("hashicorp/random")
 	s := NewSchemas()
-	SetProvider(s, addr, testBlock(), map[string]ResourceSchema{
+	SetProvider(s, addr, ProviderSchemas{Config: testBlock(), Resources: map[string]ResourceSchema{
 		"random_password": {Block: testBlock(), Version: 3},
-	}, nil)
-	SetProvider(s, addr, testBlock(), map[string]ResourceSchema{
+	}})
+	SetProvider(s, addr, ProviderSchemas{Config: testBlock(), Resources: map[string]ResourceSchema{
 		"random_pet": {Block: testBlock()},
-	}, nil)
+	}})
 
 	ps := s.Providers[addr]
 	if _, ok := ps.ResourceTypes["random_password"]; ok {
@@ -95,7 +117,7 @@ func TestSetProviderReplaces(t *testing.T) {
 func TestSetProviderCarriesIdentitySchema(t *testing.T) {
 	addr := addrs.MustParseProviderSourceString("hashicorp/random")
 	s := NewSchemas()
-	SetProvider(s, addr, testBlock(), map[string]ResourceSchema{
+	SetProvider(s, addr, ProviderSchemas{Config: testBlock(), Resources: map[string]ResourceSchema{
 		"random_password": {
 			Block:           testBlock(),
 			IdentityVersion: 1,
@@ -105,7 +127,7 @@ func TestSetProviderCarriesIdentitySchema(t *testing.T) {
 			},
 		},
 		"random_pet": {Block: testBlock()},
-	}, nil)
+	}})
 
 	schema, _ := s.ResourceTypeConfig(addr, addrs.ManagedResourceMode, "random_password")
 	if schema == nil || schema.IdentitySchema == nil {

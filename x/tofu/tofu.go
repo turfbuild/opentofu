@@ -105,23 +105,47 @@ func NewSchemas() *Schemas {
 	}
 }
 
-// SetProvider stores a provider's config/resource/data-source schemas in s
-// under addr, in the form jsonplan/jsonstate marshalling expects. It replaces
-// any existing entry for addr.
+// ProviderSchemas is one provider's schema set, split the way
+// providers.ProviderSchema itself splits it: the provider's own configuration
+// block plus the three resource modes.
 //
-// The provider's own configuration schema is version-free: only resource types
-// carry a state schema version.
-func SetProvider(s *Schemas, addr Provider, config *configschema.Block, resources, dataSources map[string]ResourceSchema) {
+// It is a struct rather than a parameter list because the three mode maps have
+// the same type, so positionally they are indistinguishable — and transposing
+// two of them would not fail to compile, it would marshal one mode's
+// configuration against another mode's schema.
+type ProviderSchemas struct {
+	// Config is the provider's own configuration schema. It is version-free:
+	// only resource types carry a state schema version.
+	Config *configschema.Block
+	// Resources, DataSources and Ephemerals are keyed by type name.
+	Resources   map[string]ResourceSchema
+	DataSources map[string]ResourceSchema
+	// Ephemerals must be populated for any configuration that declares an
+	// `ephemeral` block: jsonconfig walks every resource in the module and
+	// fails the whole marshal with "no schema found" for a mode it was not
+	// given, so an omission here breaks plan export outright rather than
+	// degrading it.
+	Ephemerals map[string]ResourceSchema
+}
+
+// SetProvider stores a provider's schemas in s under addr, in the form
+// jsonplan/jsonstate marshalling expects. It replaces any existing entry for
+// addr.
+func SetProvider(s *Schemas, addr Provider, schemas ProviderSchemas) {
 	ps := providers.ProviderSchema{
-		Provider:      providers.Schema{Block: config},
-		ResourceTypes: make(map[string]providers.Schema, len(resources)),
-		DataSources:   make(map[string]providers.Schema, len(dataSources)),
+		Provider:           providers.Schema{Block: schemas.Config},
+		ResourceTypes:      make(map[string]providers.Schema, len(schemas.Resources)),
+		DataSources:        make(map[string]providers.Schema, len(schemas.DataSources)),
+		EphemeralResources: make(map[string]providers.Schema, len(schemas.Ephemerals)),
 	}
-	for name, rs := range resources {
+	for name, rs := range schemas.Resources {
 		ps.ResourceTypes[name] = rs.providerSchema()
 	}
-	for name, rs := range dataSources {
+	for name, rs := range schemas.DataSources {
 		ps.DataSources[name] = rs.providerSchema()
+	}
+	for name, rs := range schemas.Ephemerals {
+		ps.EphemeralResources[name] = rs.providerSchema()
 	}
 	s.Providers[addr] = ps
 }
