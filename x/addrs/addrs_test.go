@@ -171,3 +171,47 @@ func TestIsDataAddr(t *testing.T) {
 		}
 	}
 }
+
+// TestResourceModeClassification pins the three-way split the address predicates
+// rest on. The case that matters is the last pair: an ephemeral address and a
+// managed address that differ only in the block type must classify differently,
+// because a caller that treats "not data" as "managed" would route an ephemeral
+// declaration into the managed plan/apply lifecycle it has none of.
+func TestResourceModeClassification(t *testing.T) {
+	cases := []struct {
+		in        string
+		wantMode  ResourceMode
+		wantOK    bool
+		wantBlock string
+	}{
+		{"aws_instance.x", ManagedResourceMode, true, "resource"},
+		{"data.aws_ami.latest", DataResourceMode, true, "data"},
+		{"ephemeral.vault_kv_secret_v2.creds", EphemeralResourceMode, true, "ephemeral"},
+		{`ephemeral.vault_kv_secret_v2.creds["k"]`, EphemeralResourceMode, true, "ephemeral"},
+		{"module.foo[0].ephemeral.vault_kv_secret_v2.creds", EphemeralResourceMode, true, "ephemeral"},
+		{"not parseable", InvalidResourceMode, false, "unknown"},
+	}
+	for _, c := range cases {
+		mode, ok := ResourceModeOf(c.in)
+		if ok != c.wantOK || mode != c.wantMode {
+			t.Errorf("ResourceModeOf(%q) = %v, %v; want %v, %v", c.in, mode, ok, c.wantMode, c.wantOK)
+		}
+		if got := ResourceModeBlockName(mode); got != c.wantBlock {
+			t.Errorf("ResourceModeBlockName for %q = %q, want %q", c.in, got, c.wantBlock)
+		}
+	}
+
+	// The predicates must not overlap: exactly one of them is true for any
+	// address that parses at all.
+	for _, addr := range []string{"aws_instance.x", "data.aws_ami.latest", "ephemeral.vault_kv_secret_v2.creds"} {
+		if IsDataAddr(addr) && IsEphemeralAddr(addr) {
+			t.Errorf("%q classified as both data and ephemeral", addr)
+		}
+	}
+	if !IsEphemeralAddr("ephemeral.vault_kv_secret_v2.creds") {
+		t.Error("IsEphemeralAddr rejected an ephemeral address")
+	}
+	if IsEphemeralAddr("vault_kv_secret_v2.creds") {
+		t.Error("IsEphemeralAddr accepted a managed address of the same type and name")
+	}
+}

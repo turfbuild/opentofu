@@ -58,10 +58,19 @@ type (
 
 // Resource modes.
 const (
+	InvalidResourceMode   = addrs.InvalidResourceMode
 	ManagedResourceMode   = addrs.ManagedResourceMode
 	DataResourceMode      = addrs.DataResourceMode
 	EphemeralResourceMode = addrs.EphemeralResourceMode
 )
+
+// ResourceModeBlockName returns the configuration block type a resource mode is
+// written as: "resource", "data" or "ephemeral". Callers that render a block
+// header or classify a declaration should use this rather than switching on the
+// mode themselves, so all three modes stay spelled the same way everywhere.
+func ResourceModeBlockName(mode ResourceMode) string {
+	return addrs.ResourceModeBlockName(mode)
+}
 
 // NoKey is the instance key for resources without count or for_each.
 var NoKey = addrs.NoKey
@@ -137,12 +146,29 @@ func InstanceKeyFromAny(v any) (InstanceKey, error) {
 	}
 }
 
+// ResourceModeOf reports which of the three resource modes a resource-instance
+// address string denotes, and whether it parsed at all. Callers deciding "is
+// this the kind of address this tool accepts?" should ask this once rather than
+// stacking per-mode predicates, so a fourth mode cannot slip past a check that
+// only knew about the modes existing when it was written.
+func ResourceModeOf(str string) (ResourceMode, bool) {
+	addr, err := ParseAbsResourceInstance(str)
+	if err != nil {
+		return InvalidResourceMode, false
+	}
+	return addr.Resource.Resource.Mode, true
+}
+
 // IsDataAddr reports whether the given resource-instance address refers to a
 // data source. Returns false for unparseable input.
 func IsDataAddr(str string) bool {
-	addr, err := ParseAbsResourceInstance(str)
-	if err != nil {
-		return false
-	}
-	return addr.Resource.Resource.Mode == DataResourceMode
+	mode, ok := ResourceModeOf(str)
+	return ok && mode == DataResourceMode
+}
+
+// IsEphemeralAddr reports whether the given resource-instance address refers to
+// an ephemeral resource. Returns false for unparseable input.
+func IsEphemeralAddr(str string) bool {
+	mode, ok := ResourceModeOf(str)
+	return ok && mode == EphemeralResourceMode
 }
