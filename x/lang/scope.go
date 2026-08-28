@@ -58,6 +58,15 @@ type Scope struct {
 
 	// Path holds path attribute values (path.module, path.root, path.cwd)
 	Path PathData
+
+	// Workspace is the value `terraform.workspace` resolves to: the name of
+	// the OpenTofu workspace (state slot) this walk is planning against.
+	//
+	// Empty means "default", which is both OpenTofu's own default workspace
+	// name and the safe answer for a caller that has not plumbed one through —
+	// the adapter substitutes it, so an unset field cannot produce an empty
+	// string where a workspace name is expected.
+	Workspace string
 }
 
 // EachData holds values for for_each iteration.

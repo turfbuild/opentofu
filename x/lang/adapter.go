@@ -148,6 +148,15 @@ func resolveRef(scope *Scope, subj addrs.Referenceable) (cty.Value, bool) {
 		}
 	case addrs.TerraformAttr:
 		if s.Name == "workspace" {
+			// The workspace this walk is actually planning against. This was
+			// hardcoded to "default", which is a wrong answer rather than a
+			// missing feature: `terraform.workspace` is the standard idiom for
+			// keying a configuration by environment, so a configuration that
+			// used it silently planned as though every workspace were the
+			// default one.
+			if scope.Workspace != "" {
+				return cty.StringVal(scope.Workspace), true
+			}
 			return cty.StringVal("default"), true
 		}
 	case addrs.CountAttr:
