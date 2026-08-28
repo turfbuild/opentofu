@@ -49,8 +49,11 @@ func (l *Loader) InternalLoader() *configload.Loader {
 
 // LoadConfig loads a complete configuration tree from a directory.
 // This resolves module calls and builds the full Config tree.
-func (l *Loader) LoadConfig(ctx context.Context, dir string) (*Config, error) {
-	cfg, diags := l.loader.LoadConfig(ctx, dir, configs.StaticModuleCall{})
+//
+// call supplies the values that statically-evaluated positions resolve
+// against; build it with RootModuleCall.
+func (l *Loader) LoadConfig(ctx context.Context, dir string, call StaticModuleCall) (*Config, error) {
+	cfg, diags := l.loader.LoadConfig(ctx, dir, call)
 	if diags.HasErrors() {
 		return nil, diagsToError(diags)
 	}
@@ -59,9 +62,12 @@ func (l *Loader) LoadConfig(ctx context.Context, dir string) (*Config, error) {
 
 // ParseModule parses a single module directory without resolving child modules.
 // This is faster when you only need the root module's configuration.
-func ParseModule(dir string) (*Module, error) {
+//
+// call supplies the values that statically-evaluated positions resolve
+// against; build it with RootModuleCall.
+func ParseModule(dir string, call StaticModuleCall) (*Module, error) {
 	parser := configs.NewParser(afero.NewOsFs())
-	mod, diags := parser.LoadConfigDir(dir, configs.StaticModuleCall{})
+	mod, diags := parser.LoadConfigDir(dir, call)
 	if diags.HasErrors() {
 		return nil, diagsToError(diags)
 	}

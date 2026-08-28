@@ -28,7 +28,7 @@ func loadConfig(t *testing.T, src string) *xconfigs.Config {
 	if err != nil {
 		t.Fatalf("new loader: %v", err)
 	}
-	cfg, err := loader.LoadConfig(context.Background(), dir)
+	cfg, err := loader.LoadConfig(context.Background(), dir, xconfigs.RootModuleCall(dir, "default", nil))
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

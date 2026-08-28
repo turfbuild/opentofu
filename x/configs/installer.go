@@ -10,7 +10,6 @@ import (
 	"runtime/trace"
 
 	version "github.com/hashicorp/go-version"
-	"github.com/opentofu/opentofu/internal/configs"
 	"github.com/opentofu/opentofu/internal/configs/configload"
 	"github.com/opentofu/opentofu/internal/getmodules"
 	"github.com/opentofu/opentofu/internal/initwd"
@@ -88,7 +87,11 @@ func NewInstaller(ctx context.Context, modulesDir string, services *disco.Disco)
 
 // InstallModules downloads and installs all modules referenced by the configuration
 // in rootDir. This is equivalent to `tofu init` for module installation.
-func (inst *Installer) InstallModules(ctx context.Context, rootDir string) error {
+//
+// call supplies the values that statically-evaluated positions resolve
+// against — a module source or version may itself reference var.* — so build
+// it with RootModuleCall.
+func (inst *Installer) InstallModules(ctx context.Context, rootDir string, call StaticModuleCall) error {
 	defer trace.StartRegion(ctx, "registry.ModuleInstall").End()
 	_, diags := inst.installer.InstallModules(
 		ctx,
@@ -97,7 +100,7 @@ func (inst *Installer) InstallModules(ctx context.Context, rootDir string) error
 		false, // upgrade — don't force re-download
 		false, // installErrsOnly — report all errors
 		traceModuleHooks{ctx: ctx},
-		configs.StaticModuleCall{},
+		call,
 	)
 	if diags.HasErrors() {
 		// Return the first error
