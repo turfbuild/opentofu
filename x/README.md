@@ -15,7 +15,7 @@ consumers do not couple themselves to internal package layouts.
 | `x/configs` | Configuration parsing, module loading, schema types, body decoding, reference extraction |
 | `x/encryption` | State encryption configuration |
 | `x/jsonplan` | The canonical `tofu show -json` plan marshaller |
-| `x/lang` | HCL expression evaluation: scopes, evaluation, validation, value marks |
+| `x/lang` | HCL expression evaluation: scopes, evaluation, validation, value marks, repetition meta-argument checks |
 | `x/objchange` | ProposedNew computation and schema-driven sensitivity projections |
 | `x/plans` | Plan types, change actions, and rendering helpers |
 | `x/providers` | Provider installation (registry + filesystem mirrors) |
