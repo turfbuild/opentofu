@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -77,14 +78,27 @@ func NewInstaller(ctx context.Context, localCacheDir, globalCacheDir string, ser
 		ProviderDownloadRetries: defaultProviderDownloadRetries,
 	})
 	// Optional local override: when TF_PROVIDER_MIRROR_DIR points at an
-	// OpenTofu filesystem-mirror layout, providers found there are preferred over
-	// the registry (registry stays the fallback). Off by default — the env var is
-	// unset in production, leaving registry-only behavior unchanged. Used by tests
-	// to load a locally-built provider (e.g. a fork with failure injection).
+	// OpenTofu filesystem-mirror layout, a provider present in the mirror is
+	// served from the mirror ONLY — the registry tier excludes it, the same
+	// split a CLI-config `provider_installation` block expresses. Exclusion
+	// rather than preference-with-fallback, for two reasons: a provider host
+	// that exists only in the mirror must not consult the registry at all
+	// (MultiSource propagates a host-resolution failure even when another
+	// tier answered, so the fallback poisons the lookup); and a silent
+	// fallback to the registry's build of a mirrored provider is exactly the
+	// wrong-provider hazard a test mirror exists to prevent. Providers not in
+	// the mirror resolve from the registry as always. Off by default — the
+	// env var is unset in production, leaving registry-only behavior
+	// unchanged. Used by tests to load a locally-built provider (e.g. a fork
+	// with failure injection).
 	if mirrorDir := os.Getenv("TF_PROVIDER_MIRROR_DIR"); mirrorDir != "" {
+		exclude, err := getproviders.ParseMultiSourceMatchingPatterns(mirrorProviderPatterns(mirrorDir))
+		if err != nil {
+			return nil, fmt.Errorf("scanning provider mirror %s: %w", mirrorDir, err)
+		}
 		src = getproviders.MultiSource{
 			{Source: getproviders.NewFilesystemMirrorSource(ctx, mirrorDir)},
-			{Source: src},
+			{Source: src, Exclude: exclude},
 		}
 	}
 	source := getproviders.NewMemoizeSource(src)
@@ -102,6 +116,44 @@ func NewInstaller(ctx context.Context, localCacheDir, globalCacheDir string, ser
 	}
 
 	return &Installer{dir: dir, installer: inst}, nil
+}
+
+// mirrorProviderPatterns lists the providers a filesystem mirror carries, as
+// "hostname/namespace/type" matching patterns — the exclusion set for the
+// registry tier. The scan is the mirror layout's own shape: three directory
+// levels, anything that is not a directory ignored. An unreadable or empty
+// mirror yields no patterns, leaving the registry tier unrestricted.
+func mirrorProviderPatterns(mirrorDir string) []string {
+	var patterns []string
+	hosts, err := os.ReadDir(mirrorDir)
+	if err != nil {
+		return nil
+	}
+	for _, host := range hosts {
+		if !host.IsDir() {
+			continue
+		}
+		namespaces, err := os.ReadDir(filepath.Join(mirrorDir, host.Name()))
+		if err != nil {
+			continue
+		}
+		for _, ns := range namespaces {
+			if !ns.IsDir() {
+				continue
+			}
+			types, err := os.ReadDir(filepath.Join(mirrorDir, host.Name(), ns.Name()))
+			if err != nil {
+				continue
+			}
+			for _, typ := range types {
+				if !typ.IsDir() {
+					continue
+				}
+				patterns = append(patterns, host.Name()+"/"+ns.Name()+"/"+typ.Name())
+			}
+		}
+	}
+	return patterns
 }
 
 // EnsureProvider resolves versionConstraint against the registry, installs the
