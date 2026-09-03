@@ -243,6 +243,13 @@ func loadConfigFileBody(body hcl.Body, _ string, override bool) (*File, hcl.Diag
 				file.Actions = append(file.Actions, cfg)
 			}
 
+		case "action_trigger":
+			cfg, cfgDiags := decodeActionTriggerDeclBlock(block)
+			diags = append(diags, cfgDiags...)
+			if cfg != nil {
+				file.ActionTriggers = append(file.ActionTriggers, cfg)
+			}
+
 		default:
 			// Should never happen because the above cases should be exhaustive
 			// for all block type names in our schema.
@@ -321,6 +328,14 @@ var configFileSchema = &hcl.BodySchema{
 			// configs carrying the action syntax loadable. See action.go.
 			Type:       "action",
 			LabelNames: []string{"type", "name"},
+		},
+		{
+			// Address-targeted action trigger: binds actions to lifecycle
+			// events on a managed resource named by address, without touching
+			// the resource's own block. Additive downstream extension pairing
+			// with the action block above. See action.go.
+			Type:       "action_trigger",
+			LabelNames: []string{"name"},
 		},
 	},
 }

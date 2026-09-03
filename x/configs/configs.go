@@ -27,10 +27,13 @@ type RequiredProvider = configs.RequiredProvider
 type ManagedResource = configs.ManagedResource
 
 // Action and ActionTrigger surface the OTF fork's native Terraform-actions
-// config parsing (top-level `action` blocks + lifecycle `action_trigger`).
+// config parsing (top-level `action` blocks + lifecycle `action_trigger`),
+// and ActionTriggerDecl the top-level address-targeted trigger form.
 type Action = configs.Action
 type ActionTrigger = configs.ActionTrigger
+type ActionTriggerDecl = configs.ActionTriggerDecl
 type ActionTriggerEvent = configs.ActionTriggerEvent
+type ActionTriggerOnFailure = configs.ActionTriggerOnFailure
 type Removed = configs.Removed
 
 // Import is the `import {}` state-motion block: an instruction to adopt an
