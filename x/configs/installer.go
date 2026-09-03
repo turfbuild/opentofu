@@ -54,11 +54,23 @@ type Installer struct {
 // one token. A nil services falls back to anonymous discovery, which reaches
 // public registries only.
 func NewInstaller(ctx context.Context, modulesDir string, services *disco.Disco) (*Installer, error) {
+	return NewInstallerFS(ctx, modulesDir, services, nil)
+}
+
+// NewInstallerFS is NewInstaller with the installer's config reads going
+// through the given filesystem. The FS must pass real-disk reads through (a
+// union whose base is the OS filesystem): go-getter still writes installed
+// packages and the module manifest to the real filesystem, and they are read
+// back through the union base. Use it when the module blocks to install live
+// in a caller-composed view rather than plain files. A nil fs is NewInstaller.
+func NewInstallerFS(ctx context.Context, modulesDir string, services *disco.Disco, fs FS) (*Installer, error) {
 	if err := os.MkdirAll(modulesDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create modules directory: %w", err)
 	}
 	loader, err := configload.NewLoader(&configload.Config{
-		ModulesDir: modulesDir,
+		ModulesDir:   modulesDir,
+		FS:           fs,
+		FSCanInstall: fs != nil,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config loader: %w", err)

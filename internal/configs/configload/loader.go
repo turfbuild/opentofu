@@ -45,10 +45,19 @@ type Config struct {
 
 	// FS, if non-nil, is the filesystem the loader reads configuration
 	// (and the module manifest) through, instead of the real OS
-	// filesystem. A loader with a caller-provided filesystem cannot
-	// support module installation, for the same reason a snapshot-backed
-	// loader cannot: the installer writes to the real filesystem only.
+	// filesystem. By default a loader with a caller-provided filesystem
+	// cannot support module installation, for the same reason a
+	// snapshot-backed loader cannot: the installer writes to the real
+	// filesystem only.
 	FS afero.Fs
+
+	// FSCanInstall asserts that the caller-provided FS passes real-disk
+	// reads through — a union filesystem whose base is the OS filesystem —
+	// so module installation may proceed: go-getter writes real disk, the
+	// manifest write is real-OS, and both read back through the union base.
+	// Meaningless when FS is nil (installation is always supported then);
+	// never set it for a filesystem that does not serve the real disk.
+	FSCanInstall bool
 }
 
 // NewLoader creates and returns a loader that reads configuration from the
@@ -68,7 +77,7 @@ func NewLoader(config *Config) (*Loader, error) {
 		parser: parser,
 		modules: moduleMgr{
 			FS:         afero.Afero{Fs: fs},
-			CanInstall: config.FS == nil,
+			CanInstall: config.FS == nil || config.FSCanInstall,
 			Dir:        config.ModulesDir,
 		},
 	}
