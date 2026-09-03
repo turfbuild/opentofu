@@ -15,6 +15,12 @@ import (
 
 // Address types.
 type (
+	// Target is a parsed targeting address (resource, resource instance, or
+	// module instance), with Targetable its subject interface — the form the
+	// address-targeted action_trigger block's `target` decodes to.
+	Target     = addrs.Target
+	Targetable = addrs.Targetable
+
 	AbsResource         = addrs.AbsResource
 	AbsResourceInstance = addrs.AbsResourceInstance
 	Resource            = addrs.Resource
