@@ -18,6 +18,17 @@ import (
 	"github.com/spf13/afero"
 )
 
+// FS is the filesystem abstraction the loader and parser read through.
+type FS = afero.Fs
+
+// Snapshot is an in-memory capture of all the configuration files of a
+// loaded module tree, in the same form a saved plan embeds. Mirrors
+// configload.Snapshot.
+type Snapshot = configload.Snapshot
+
+// SnapshotModule is one module's captured files within a Snapshot.
+type SnapshotModule = configload.SnapshotModule
+
 // Loader wraps OpenTofu's config loader for loading complete module trees.
 type Loader struct {
 	loader *configload.Loader
@@ -33,6 +44,30 @@ func NewLoader(modulesDir string) (*Loader, error) {
 		return nil, err
 	}
 	return &Loader{loader: l}, nil
+}
+
+// NewLoaderFS creates a configuration loader that reads through the given
+// filesystem instead of the real OS filesystem. Such a loader cannot install
+// modules; installed module directories and the module manifest are still
+// found whenever fs passes real-disk reads through (a union filesystem whose
+// base is the OS filesystem, say).
+func NewLoaderFS(modulesDir string, fs FS) (*Loader, error) {
+	l, err := configload.NewLoader(&configload.Config{
+		ModulesDir: modulesDir,
+		FS:         fs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Loader{loader: l}, nil
+}
+
+// NewLoaderFromSnapshot creates a configuration loader that reads all of its
+// configuration bytes from the given snapshot rather than any filesystem.
+// This is how OpenTofu itself reloads the configuration embedded in a saved
+// plan (mirrors configload.NewLoaderFromSnapshot).
+func NewLoaderFromSnapshot(snap *Snapshot) *Loader {
+	return &Loader{loader: configload.NewLoaderFromSnapshot(snap)}
 }
 
 // RefreshModules re-reads the module manifest from disk.
@@ -60,13 +95,31 @@ func (l *Loader) LoadConfig(ctx context.Context, dir string, call StaticModuleCa
 	return cfg, nil
 }
 
+// LoadConfigWithSnapshot is LoadConfig plus an in-memory capture of every
+// configuration file the load consumed, in the same form a saved plan embeds
+// (mirrors configload.(*Loader).LoadConfigWithSnapshot). Reload the capture
+// with NewLoaderFromSnapshot.
+func (l *Loader) LoadConfigWithSnapshot(ctx context.Context, dir string, call StaticModuleCall) (*Config, *Snapshot, error) {
+	cfg, snap, diags := l.loader.LoadConfigWithSnapshot(ctx, dir, call)
+	if diags.HasErrors() {
+		return nil, nil, diagsToError(diags)
+	}
+	return cfg, snap, nil
+}
+
 // ParseModule parses a single module directory without resolving child modules.
 // This is faster when you only need the root module's configuration.
 //
 // call supplies the values that statically-evaluated positions resolve
 // against; build it with RootModuleCall.
 func ParseModule(dir string, call StaticModuleCall) (*Module, error) {
-	parser := configs.NewParser(afero.NewOsFs())
+	return ParseModuleFS(afero.NewOsFs(), dir, call)
+}
+
+// ParseModuleFS is ParseModule reading through the given filesystem instead
+// of the real OS filesystem.
+func ParseModuleFS(fs FS, dir string, call StaticModuleCall) (*Module, error) {
+	parser := configs.NewParser(fs)
 	mod, diags := parser.LoadConfigDir(dir, call)
 	if diags.HasErrors() {
 		return nil, diagsToError(diags)
