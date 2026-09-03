@@ -139,7 +139,13 @@ func LoadVariablesFile(path string) (map[string]Expression, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ParseVariablesSource(content, path)
+}
 
+// ParseVariablesSource is LoadVariablesFile over bytes already in hand — for
+// callers replaying a captured variables file rather than reading the live
+// one. path is used for syntax selection and diagnostics only.
+func ParseVariablesSource(content []byte, path string) (map[string]Expression, error) {
 	extJSON := strings.HasSuffix(path, ".json")
 	extTfvars := strings.HasSuffix(path, ".tfvars")
 	detectJSON := !extJSON && !extTfvars && strings.HasPrefix(strings.TrimSpace(string(content)), "{")
