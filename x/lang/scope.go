@@ -41,6 +41,12 @@ type Scope struct {
 	// Self holds the "self" reference value (for provisioners)
 	Self cty.Value
 
+	// Caller holds the "caller" reference value: the triggering resource
+	// instance's value when evaluating an action configuration for a
+	// resource's action_trigger. cty.NilVal means "caller" is unavailable
+	// in this scope and referencing it is an error.
+	Caller cty.Value
+
 	// Each holds the "each" reference values (each.key, each.value)
 	Each *EachData
 

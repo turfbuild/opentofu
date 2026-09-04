@@ -98,6 +98,12 @@ func (d *scopeData) GetCheckBlock(_ context.Context, addr addrs.Check, _ tfdiags
 // permissive mode (adapter) discard it, while ValidateExpression uses it
 // to drive diagnostics.
 func resolveRef(scope *Scope, subj addrs.Referenceable) (cty.Value, bool) {
+	if subj == addrs.Caller {
+		if scope.Caller != cty.NilVal {
+			return scope.Caller, true
+		}
+		return cty.DynamicVal, false
+	}
 	switch s := subj.(type) {
 	case addrs.InputVariable:
 		if v, ok := scope.Variables[s.Name]; ok {

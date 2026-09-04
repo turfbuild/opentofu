@@ -346,3 +346,60 @@ func TestEvalConfigSensitivePaths(t *testing.T) {
 		}
 	})
 }
+
+// TestEvalExpressionString_Caller: the "caller" object aliases the triggering
+// resource instance when evaluating an action configuration for an
+// action_trigger, and is an error everywhere else.
+func TestEvalExpressionString_Caller(t *testing.T) {
+	t.Run("ResolvesAttribute", func(t *testing.T) {
+		s := NewScope()
+		s.Caller = cty.ObjectVal(map[string]cty.Value{
+			"id": cty.StringVal("able-mongoose"),
+		})
+		res, err := EvalExpressionString("pet is ${caller.id}", s)
+		if err != nil {
+			t.Fatalf("caller.id should evaluate; got: %v", err)
+		}
+		if got := res.Value.AsString(); got != "pet is able-mongoose" {
+			t.Fatalf("want caller attribute interpolated, got %q", got)
+		}
+	})
+
+	t.Run("UnavailableIsAnError", func(t *testing.T) {
+		s := NewScope()
+		_, err := EvalExpressionString("${caller.id}", s)
+		if err == nil {
+			t.Fatal("caller outside an action_trigger evaluation should error, got nil")
+		}
+		if !strings.Contains(err.Error(), "caller") || !strings.Contains(err.Error(), "action_trigger") {
+			t.Fatalf("error should explain where caller is available; got: %v", err)
+		}
+	})
+
+	t.Run("UnknownCallerPropagatesUnknown", func(t *testing.T) {
+		s := NewScope()
+		s.Caller = cty.DynamicVal
+		res, err := EvalExpressionString("${caller.id}", s)
+		if err != nil {
+			t.Fatalf("a present-but-unknown caller should evaluate, not error; got: %v", err)
+		}
+		if res.IsKnown {
+			t.Fatal("want an unknown result from an unknown caller")
+		}
+	})
+
+	t.Run("PartiallyKnownCallerResolvesKnownAttr", func(t *testing.T) {
+		s := NewScope()
+		s.Caller = cty.ObjectVal(map[string]cty.Value{
+			"name": cty.StringVal("web"),
+			"id":   cty.UnknownVal(cty.String),
+		})
+		res, err := EvalExpressionString("${caller.name}", s)
+		if err != nil {
+			t.Fatalf("known attribute of a partially-known caller should evaluate; got: %v", err)
+		}
+		if got := res.Value.AsString(); got != "web" {
+			t.Fatalf("want the known attribute value, got %q", got)
+		}
+	})
+}

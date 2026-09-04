@@ -138,3 +138,39 @@ func TestValidateConfig_ModuleOutputGranularity(t *testing.T) {
 		}
 	})
 }
+
+// TestValidateConfig_Caller: symbol-level validation of the "caller" object —
+// present (even wholly unknown) passes, absent fails with the availability
+// hint. An unknown caller must pass because before-event triggers validate at
+// plan time, when the triggering resource's value is not yet known.
+func TestValidateConfig_Caller(t *testing.T) {
+	t.Run("AbsentFailsWithHint", func(t *testing.T) {
+		s := NewScope()
+		err := ValidateConfig(map[string]any{"message": "${caller.id}"}, s)
+		if err == nil {
+			t.Fatal("expected a validation error for caller outside a trigger scope, got nil")
+		}
+		if !strings.Contains(err.Error(), "caller") {
+			t.Fatalf("error should name caller; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "action_trigger") {
+			t.Fatalf("error should carry the availability hint; got: %v", err)
+		}
+	})
+
+	t.Run("PresentPasses", func(t *testing.T) {
+		s := NewScope()
+		s.Caller = cty.ObjectVal(map[string]cty.Value{"id": cty.StringVal("x")})
+		if err := ValidateConfig(map[string]any{"message": "${caller.id}"}, s); err != nil {
+			t.Fatalf("caller present should validate; got: %v", err)
+		}
+	})
+
+	t.Run("UnknownPresentPasses", func(t *testing.T) {
+		s := NewScope()
+		s.Caller = cty.DynamicVal
+		if err := ValidateConfig(map[string]any{"message": "${caller.id}"}, s); err != nil {
+			t.Fatalf("present-but-unknown caller should validate symbol-level; got: %v", err)
+		}
+	})
+}

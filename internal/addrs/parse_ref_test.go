@@ -667,6 +667,39 @@ func TestParseRef(t *testing.T) {
 			`The "path" object does not support this operation.`,
 		},
 
+		// caller
+		{
+			`caller`,
+			&Reference{
+				Subject: Caller,
+				SourceRange: tfdiags.SourceRange{
+					Start: tfdiags.SourcePos{Line: 1, Column: 1, Byte: 0},
+					End:   tfdiags.SourcePos{Line: 1, Column: 7, Byte: 6},
+				},
+			},
+			``,
+		},
+		{
+			`caller.id`,
+			&Reference{
+				Subject: Caller,
+				SourceRange: tfdiags.SourceRange{
+					Start: tfdiags.SourcePos{Line: 1, Column: 1, Byte: 0},
+					End:   tfdiags.SourcePos{Line: 1, Column: 7, Byte: 6},
+				},
+				Remaining: hcl.Traversal{
+					hcl.TraverseAttr{
+						Name: "id",
+						SrcRange: hcl.Range{
+							Start: hcl.Pos{Line: 1, Column: 7, Byte: 6},
+							End:   hcl.Pos{Line: 1, Column: 10, Byte: 9},
+						},
+					},
+				},
+			},
+			``,
+		},
+
 		// self
 		{
 			`self`,

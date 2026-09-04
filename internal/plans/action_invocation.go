@@ -57,10 +57,21 @@ type ActionInvocationInstanceSrc struct {
 	// Config carries the action's config arguments: literal values where the
 	// authored expression is constant, and "${...}" strings where it references
 	// other objects (re-evaluated against state + outputs at apply).
+	//
+	// When ConfigFrozen is true the map instead holds fully resolved values,
+	// captured at plan time, and apply uses them verbatim.
 	Config map[string]any
+
+	// ConfigFrozen marks a config that was resolved at plan time (destroy-event
+	// triggers, whose references cannot be re-evaluated at apply without
+	// ordering cycles — the Terraform 1.16 "frozen at plan" rule). Apply must
+	// not re-evaluate a frozen config: a resolved literal that happens to
+	// contain "${" must not be re-parsed as a template.
+	ConfigFrozen bool
 
 	// Refs are the resource addresses the config references, derived at plan time.
 	// They drive execution ordering (the invocation waits on the objects it reads).
+	// Always nil when ConfigFrozen: a frozen config reads nothing at apply.
 	Refs []string
 
 	// OnFailure is how a failure of this action is handled — one of "halt"

@@ -52,8 +52,9 @@ func ContainsInterpolation(s string) bool {
 // resolves.
 func otfScope(s *Scope) *otflang.Scope {
 	return &otflang.Scope{
-		Data:     &scopeData{scope: s},
-		ParseRef: addrs.ParseRef,
+		Data:        &scopeData{scope: s},
+		ParseRef:    addrs.ParseRef,
+		CallerValue: s.Caller,
 	}
 }
 
