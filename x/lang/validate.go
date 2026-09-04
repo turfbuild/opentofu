@@ -42,6 +42,7 @@ func ValidateExpression(expr hcl.Expression, scope *Scope) error {
 		}
 	}
 	moduleOutputMissing := false
+	callerMissing := false
 	for _, ref := range refs {
 		// A module-output ref must resolve at OUTPUT granularity, not just at
 		// the module call: `module.<name>` exposes declared outputs and nothing
@@ -72,12 +73,19 @@ func ValidateExpression(expr hcl.Expression, scope *Scope) error {
 		if _, ok := resolveRef(scope, subj); ok {
 			continue
 		}
+		if subj == addrs.Caller {
+			callerMissing = true
+		}
 		add(formatRefSubject(subj))
 	}
 	if len(missing) == 0 {
 		return nil
 	}
 	msg := "unresolved references: " + strings.Join(missing, ", ")
+	if callerMissing {
+		msg += ` (the "caller" object is only available in an action configuration evaluated for a ` +
+			"resource's action_trigger, where it refers to the triggering resource instance)"
+	}
 	if moduleOutputMissing {
 		msg += " (a module call exposes only its declared outputs, module.<name>.<output> — " +
 			"resources inside the module are not addressable; declare an output on the module " +

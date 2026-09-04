@@ -230,6 +230,12 @@ func parseRef(traversal hcl.Traversal) (*Reference, tfdiags.Diagnostics) {
 		return parseSingleAttrRef(traversal, func(name string) Referenceable {
 			return PathAttr{Name: name}
 		})
+	case "caller":
+		return &Reference{
+			Subject:     Caller,
+			SourceRange: tfdiags.SourceRangeFromHCL(rootRange),
+			Remaining:   traversal[1:],
+		}, diags
 	case "self":
 		return &Reference{
 			Subject:     Self,
