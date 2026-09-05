@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/opentofu/opentofu/internal/addrs"
-	otflang "github.com/opentofu/opentofu/internal/lang"
 )
 
 // ValidateExpression checks whether every reference in expr is satisfied
@@ -29,7 +28,7 @@ import (
 // resolveLocals uses this as a dependency-ordering signal: a local whose
 // expression has at least one unresolved ref defers to the next pass.
 func ValidateExpression(expr hcl.Expression, scope *Scope) error {
-	refs, refDiags := otflang.ReferencesInExpr(addrs.ParseRef, expr)
+	refs, refDiags := ReferencesInExpr(nil, expr)
 	if refDiags.HasErrors() {
 		return fmt.Errorf("parse references: %s", refDiags.Err())
 	}
@@ -195,7 +194,7 @@ func formatRefSubject(subj addrs.Referenceable) string {
 // expr. Used by resolveLocals to decide whether to defer a local's
 // evaluation until other locals in the same module finish resolving.
 func ExpressionLocalRefs(expr hcl.Expression) ([]string, error) {
-	refs, refDiags := otflang.ReferencesInExpr(addrs.ParseRef, expr)
+	refs, refDiags := ReferencesInExpr(nil, expr)
 	if refDiags.HasErrors() {
 		return nil, fmt.Errorf("parse references: %s", refDiags.Err())
 	}

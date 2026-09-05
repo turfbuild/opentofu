@@ -11,8 +11,6 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/opentofu/opentofu/internal/addrs"
-	otflang "github.com/opentofu/opentofu/internal/lang"
 	"github.com/opentofu/opentofu/internal/lang/marks"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -46,25 +44,13 @@ func ContainsInterpolation(s string) bool {
 	return strings.Contains(s, "${") || strings.Contains(s, "%{")
 }
 
-// otfScope builds an OpenTofu lang.Scope backed by our Scope.
-// The returned Scope has Data wired to the scopeData adapter (permissive)
-// and ParseRef set to addrs.ParseRef so every standard reference type
-// resolves.
-func otfScope(s *Scope) *otflang.Scope {
-	return &otflang.Scope{
-		Data:        &scopeData{scope: s},
-		ParseRef:    addrs.ParseRef,
-		CallerValue: s.Caller,
-	}
-}
-
 // EvalExpression evaluates an HCL expression via OpenTofu's lang.Scope.
 // Missing references resolve to cty.DynamicVal so unknowns propagate
 // through cty semantics. To fail fast on missing references, call
 // ValidateExpression first.
 func EvalExpression(expr hcl.Expression, scope *Scope) (*EvalResult, error) {
 	ctx := context.Background()
-	val, diags := otfScope(scope).EvalExpr(ctx, expr, cty.DynamicPseudoType)
+	val, diags := scope.EvalScope().EvalExpr(ctx, expr, cty.DynamicPseudoType)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("evaluation error: %s", diags.Err())
 	}

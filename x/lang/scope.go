@@ -47,9 +47,6 @@ type Scope struct {
 	// by EvalContext to make `module.<name>.<output>` references resolvable.
 	Modules map[string]cty.Value
 
-	// Self holds the "self" reference value (for provisioners)
-	Self cty.Value
-
 	// Caller holds the "caller" reference value: the triggering resource
 	// instance's value when evaluating an action configuration for a
 	// resource's action_trigger. cty.NilVal means "caller" is unavailable
@@ -99,6 +96,21 @@ func NewScope() *Scope {
 		Outputs:     make(map[string]cty.Value),
 		Modules:     make(map[string]cty.Value),
 	}
+}
+
+// EvalScope returns this scope as the seam scope that actually performs the
+// evaluation: itself as the Data backend, plus the settings a Scope can
+// express. Every entry point in this package that takes a *Scope goes through
+// here, so the package builds an OpenTofu scope in exactly one place.
+//
+// It is also the way out. A Scope cannot express BaseDir, PureOnly, SelfAddr
+// or a ParseRef of its own, and cannot produce the *hcl.EvalContext a
+// schema-driven typed decode needs; the EvalScope this returns can do all of
+// it, over the same values, without the caller rebuilding its value plumbing
+// first. The returned scope is a live view -- it holds this *Scope, so later
+// mutations (Count, Each, a freshly set resource) are visible through it.
+func (s *Scope) EvalScope() *EvalScope {
+	return &EvalScope{Data: &scopeData{scope: s}, Caller: s.Caller}
 }
 
 // SetVariable sets an input variable value.

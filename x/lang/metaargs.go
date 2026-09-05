@@ -77,7 +77,7 @@ type ForEachPair struct {
 // wants for expressions it evaluates itself.
 func contextFunc(scope *Scope) evalchecks.ContextFunc {
 	return func(refs []*addrs.Reference) (*hcl.EvalContext, tfdiags.Diagnostics) {
-		return otfScope(scope).EvalContext(context.Background(), refs)
+		return scope.EvalScope().EvalContext(context.Background(), refs)
 	}
 }
 
@@ -159,7 +159,7 @@ func EvaluateCount(expr hcl.Expression, scope *Scope) (int, bool, error) {
 	// passes (internal/tofu/eval_expansion.go); the conversion evalchecks does
 	// internally, via gocty, would not accept it.
 	evaluate := func(expr hcl.Expression) (cty.Value, tfdiags.Diagnostics) {
-		return otfScope(scope).EvalExpr(context.Background(), expr, cty.Number)
+		return scope.EvalScope().EvalExpr(context.Background(), expr, cty.Number)
 	}
 
 	val, diags := evalchecks.EvaluateCountExpressionValue(expr, evaluate)

@@ -17,23 +17,32 @@ import (
 	xaddrs "github.com/opentofu/opentofu/x/addrs"
 )
 
-// This file opens the evaluation seam.
+// This file is the evaluation surface of this package.
 //
-// The Scope type in scope.go is a closed, concrete, map-shaped scope: a
-// consumer hands it flat maps keyed "type.name" and gets values back. That is
-// convenient for a caller holding decoded JSON, but it forecloses three things
-// a full consumer needs — module-instance addressing, the scope settings
-// OpenTofu itself sets per evaluation (BaseDir, PureOnly, SelfAddr), and above
-// all an *hcl.EvalContext, without which the canonical typed decode
+// EvalScope is what evaluates. It exposes the interface OpenTofu's own
+// evaluator consumes — resolution delegated to a caller-supplied Data — so a
+// consumer can back it with whatever storage model it has, address module
+// instances, set the per-evaluation settings OpenTofu sets (BaseDir, PureOnly,
+// SelfAddr), and above all obtain the *hcl.EvalContext that the canonical
+// typed decode
 //
 //	hcldec.Decode(body, schema.DecoderSpec(), evalCtx)
 //
-// cannot be performed at all. A consumer denied that has to reimplement decode
-// over untyped maps, inferring cty types back out of Go values.
+// requires. Without that a consumer has to reimplement decode over untyped
+// maps, inferring cty types back out of Go values.
 //
-// So this file exposes the interface OpenTofu's evaluator actually consumes,
-// and lets a consumer implement it. The map-shaped Scope remains, unchanged
-// and still the easy path; EvalScope is the complete one.
+// The Scope in scope.go is a convenience over this, not a parallel to it: a
+// closed, map-shaped façade for a caller holding decoded JSON, which supplies
+// a Data implementation over its flat maps and converts with Scope.EvalScope.
+// Every entry point in this package that takes a *Scope goes through that
+// conversion, so there is one evaluator and one place where OpenTofu's scope
+// is constructed — the otf method below.
+//
+// That single path is load-bearing rather than tidy. While the two surfaces
+// each built their own scope, a capability had to be added twice to work in
+// both, and the second payment was easy to defer or forget: the "caller"
+// object shipped on Scope and left EvalScope a capability short until a later
+// commit put it back.
 
 // Data is the interface an evaluation backend implements to resolve
 // references. It is OpenTofu's own lang.Data: implement it and OpenTofu's
