@@ -87,6 +87,18 @@ type EvalScope struct {
 	// access to anything scoped to that item. Nil means module-level access.
 	SourceAddr xaddrs.Referenceable
 
+	// Caller is what `caller` resolves to: the triggering resource instance's
+	// value when evaluating an action's configuration for an action_trigger.
+	// cty.NilVal makes `caller` unavailable, so a reference to it anywhere
+	// else is an error rather than a silent null.
+	//
+	// Unlike everything else a reference can name, this one is not resolved
+	// through Data. The triggering instance is not addressable from inside
+	// the action's configuration — `caller` is an alias, not an address — so
+	// there is nothing for a Data implementation to look up, and the value
+	// is carried directly. Scope carries it the same way.
+	Caller cty.Value
+
 	// BaseDir is the directory that filesystem functions — file(),
 	// templatefile(), fileexists() — resolve relative paths against. Leaving
 	// it empty resolves them against the process working directory, which for
@@ -124,6 +136,7 @@ func (e *EvalScope) otf() *otflang.Scope {
 		ParseRef:          parseRef,
 		SelfAddr:          e.SelfAddr,
 		SourceAddr:        e.SourceAddr,
+		CallerValue:       e.Caller,
 		BaseDir:           e.BaseDir,
 		PureOnly:          e.PureOnly,
 		PlanTimestamp:     e.PlanTimestamp,
