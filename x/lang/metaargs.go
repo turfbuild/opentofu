@@ -51,17 +51,27 @@ import (
 // unknowns allowed it reports "not determinable" by returning an unknown value
 // with no diagnostics, while still diagnosing every permanent problem.
 //
-// # Why each entry point evaluates twice
+// # What signals a deferral
 //
-// evalchecks folds two kinds of diagnostics into one list: those from
-// evaluating the expression at all (an unresolved reference), and those from
-// checking the resulting value (null, sensitive, wrong type). Turf must defer
-// on the first and hard-error on the second. Since the two cannot be told
-// apart after the fact without matching on diagnostic text, each function
-// first evaluates through EvalExpression: if that fails, the expression is not
-// evaluable in this scope yet and the outcome is a deferral. Only then does it
-// call evalchecks, whose remaining diagnostics can only be check diagnostics.
-// The extra evaluation is side-effect-free and cheap relative to a plan.
+// The signal is an unknown *value*, never a failed evaluation. evalchecks
+// reports "not determinable" by returning an unknown value with no diagnostics
+// — always for count, and for for_each whenever unknowns are allowed — so a
+// diagnostic coming back from it can only mean a real problem, and is raised.
+//
+// The distinction is not academic, because the scope decides what an
+// unresolvable reference looks like. A permissive Data resolves one to
+// cty.DynamicVal, which is a value and correctly defers. A strict Data
+// diagnoses it, and those diagnostics say things like "the walk reached a body
+// that reads it before it was planned or fetched, which is a defect in the
+// walk's ordering". Treating a failed evaluation as a deferral would swallow
+// exactly those, converting a caller's ordering bug into a resource that
+// silently defers every round and never converges.
+//
+// EvaluateEnabled is the one exception, and it is forced: OpenTofu has no
+// allow-unknown mode for that argument and diagnoses an unknown as an error,
+// tagged indistinguishably from the sensitive case. Knownness is therefore
+// tested before the check runs — but a failed evaluation there is still an
+// error, not a deferral.
 
 // ForEachPair is one repetition produced by a for_each argument.
 //
@@ -73,11 +83,11 @@ type ForEachPair struct {
 	Value cty.Value
 }
 
-// contextFunc adapts a Scope to the hcl.EvalContext constructor evalchecks
+// contextFunc adapts a scope to the hcl.EvalContext constructor evalchecks
 // wants for expressions it evaluates itself.
-func contextFunc(scope *Scope) evalchecks.ContextFunc {
+func contextFunc(scope *EvalScope) evalchecks.ContextFunc {
 	return func(refs []*addrs.Reference) (*hcl.EvalContext, tfdiags.Diagnostics) {
-		return scope.EvalScope().EvalContext(context.Background(), refs)
+		return scope.EvalContext(context.Background(), refs)
 	}
 }
 
@@ -92,19 +102,10 @@ func contextFunc(scope *Scope) evalchecks.ContextFunc {
 //
 // Keys of the map, object, and set forms are sorted; the tuple and list forms
 // keep their index order.
-func EvaluateForEach(expr hcl.Expression, scope *Scope, allowTuple, allowUnknown bool) ([]ForEachPair, bool, error) {
+func EvaluateForEach(expr hcl.Expression, scope *EvalScope, allowTuple, allowUnknown bool) ([]ForEachPair, bool, error) {
 	if expr == nil {
 		return nil, false, nil
 	}
-	if _, err := EvalExpression(expr, scope); err != nil {
-		// Not evaluable in this scope yet — see "Why each entry point
-		// evaluates twice" above.
-		if allowUnknown {
-			return nil, true, nil
-		}
-		return nil, false, err
-	}
-
 	val, diags := evalchecks.EvaluateForEachExpressionValue(expr, contextFunc(scope), allowUnknown, allowTuple, nil)
 	if diags.HasErrors() {
 		return nil, false, diagsError(diags)
@@ -145,21 +146,17 @@ func EvaluateForEach(expr hcl.Expression, scope *Scope, allowTuple, allowUnknown
 // permitted (a count cannot disclose the value it was derived from, only its
 // magnitude, and an instance key is a number either way); ephemeral values are
 // not. Both of those are OpenTofu's rules, not this wrapper's.
-func EvaluateCount(expr hcl.Expression, scope *Scope) (int, bool, error) {
+func EvaluateCount(expr hcl.Expression, scope *EvalScope) (int, bool, error) {
 	if expr == nil {
 		return 0, false, nil
 	}
-	if _, err := EvalExpression(expr, scope); err != nil {
-		return 0, true, nil
-	}
-
 	// cty.Number as the want type is what makes HCL's own conversion apply, so
 	// a count that arrives as the string "2" — which is how a JSON-shaped
 	// caller serializes it — reads as 2. This matches the want type OpenTofu
 	// passes (internal/tofu/eval_expansion.go); the conversion evalchecks does
 	// internally, via gocty, would not accept it.
 	evaluate := func(expr hcl.Expression) (cty.Value, tfdiags.Diagnostics) {
-		return scope.EvalScope().EvalExpr(context.Background(), expr, cty.Number)
+		return scope.EvalExpr(context.Background(), expr, cty.Number)
 	}
 
 	val, diags := evalchecks.EvaluateCountExpressionValue(expr, evaluate)
@@ -180,16 +177,18 @@ func EvaluateCount(expr hcl.Expression, scope *Scope) (int, bool, error) {
 // allow-unknown mode for this argument — and its unknown diagnostic is not
 // distinguishable from its sensitive one, both being tagged as caused by
 // unknown values — so the knownness test is a pre-pass here. It is a plain
-// IsKnown: a bool has no interior to be partially known.
-func EvaluateEnabled(expr hcl.Expression, scope *Scope) (bool, bool, error) {
+// IsKnown: a bool has no interior to be partially known. An expression that
+// fails to evaluate at all is an error rather than a deferral; only an unknown
+// value defers.
+func EvaluateEnabled(expr hcl.Expression, scope *EvalScope) (bool, bool, error) {
 	if expr == nil {
 		return true, false, nil
 	}
-	res, err := EvalExpression(expr, scope)
-	if err != nil {
-		return false, true, nil
+	val, diags := scope.EvalExpr(context.Background(), expr, cty.DynamicPseudoType)
+	if diags.HasErrors() {
+		return false, false, diagsError(diags)
 	}
-	if !res.Value.IsKnown() {
+	if !val.IsKnown() {
 		return false, true, nil
 	}
 

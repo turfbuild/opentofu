@@ -5,12 +5,14 @@ package lang_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
+	xaddrs "github.com/opentofu/opentofu/x/addrs"
 	xlang "github.com/opentofu/opentofu/x/lang"
 )
 
@@ -123,5 +125,94 @@ func TestEvalScopeSeesLaterScopeMutations(t *testing.T) {
 	}
 	if !val.RawEquals(cty.NumberIntVal(7)) {
 		t.Errorf("count.index = %#v through a scope converted before Count was set", val)
+	}
+}
+
+// strictData is a Data that diagnoses an unresolvable reference instead of
+// answering with an unknown. Real consumers do this: a walk that knows the
+// value should already be there reports its absence as a defect in its own
+// ordering, not as something to wait for.
+type strictData struct {
+	xlang.Data
+}
+
+func (strictData) StaticValidateReferences(context.Context, []*xaddrs.Reference, xaddrs.Referenceable, xaddrs.Referenceable) xlang.Diagnostics {
+	return nil
+}
+
+func (strictData) GetResource(_ context.Context, addr xaddrs.Resource, _ xlang.SourceRange) (cty.Value, xlang.Diagnostics) {
+	var diags xlang.Diagnostics
+	return cty.DynamicVal, diags.Append(fmt.Errorf(
+		"no value is available for %s: the walk read it before it was planned, a defect in the walk's ordering", addr))
+}
+
+// A repetition argument that cannot be evaluated is an error, not a deferral.
+//
+// The distinction only exists because the scope decides what an unresolvable
+// reference looks like: a permissive backend answers with an unknown, which
+// legitimately defers, while a strict one diagnoses. Deferring on a diagnostic
+// would take a caller's ordering bug -- whose message says exactly that -- and
+// turn it into an object that quietly defers every round and never converges.
+func TestRepetitionRaisesAStrictScopesDiagnostic(t *testing.T) {
+	scope := &xlang.EvalScope{Data: strictData{}}
+
+	t.Run("count", func(t *testing.T) {
+		expr, diags := hclsyntax.ParseExpression([]byte("length(aws_thing.r.names)"), "test.hcl", hcl.InitialPos)
+		if diags.HasErrors() {
+			t.Fatalf("parsing: %s", diags.Error())
+		}
+		_, deferred, err := xlang.EvaluateCount(expr, scope)
+		if deferred {
+			t.Fatal("deferred on a scope that diagnosed the reference rather than deferring it")
+		}
+		if err == nil {
+			t.Fatal("no error from a count whose reference the scope refused")
+		}
+	})
+
+	t.Run("for_each", func(t *testing.T) {
+		expr, diags := hclsyntax.ParseExpression([]byte("aws_thing.r.names"), "test.hcl", hcl.InitialPos)
+		if diags.HasErrors() {
+			t.Fatalf("parsing: %s", diags.Error())
+		}
+		_, deferred, err := xlang.EvaluateForEach(expr, scope, false, true)
+		if deferred {
+			t.Fatal("deferred on a scope that diagnosed the reference rather than deferring it")
+		}
+		if err == nil {
+			t.Fatal("no error from a for_each whose reference the scope refused")
+		}
+	})
+
+	t.Run("enabled", func(t *testing.T) {
+		expr, diags := hclsyntax.ParseExpression([]byte("aws_thing.r.on"), "test.hcl", hcl.InitialPos)
+		if diags.HasErrors() {
+			t.Fatalf("parsing: %s", diags.Error())
+		}
+		_, deferred, err := xlang.EvaluateEnabled(expr, scope)
+		if deferred {
+			t.Fatal("deferred on a scope that diagnosed the reference rather than deferring it")
+		}
+		if err == nil {
+			t.Fatal("no error from an enabled whose reference the scope refused")
+		}
+	})
+}
+
+// The permissive side of the same rule: an unknown *value* still defers, which
+// is how a walk waits for something genuinely not yet computed.
+func TestRepetitionDefersOnAnUnknownValue(t *testing.T) {
+	s := xlang.NewScope()
+	s.SetVariable("n", cty.UnknownVal(cty.Number))
+	s.SetVariable("each", cty.UnknownVal(cty.Set(cty.String)))
+
+	countExpr, _ := hclsyntax.ParseExpression([]byte("var.n"), "test.hcl", hcl.InitialPos)
+	if _, deferred, err := xlang.EvaluateCount(countExpr, s.EvalScope()); err != nil || !deferred {
+		t.Fatalf("count over an unknown: deferred=%v err=%v", deferred, err)
+	}
+
+	eachExpr, _ := hclsyntax.ParseExpression([]byte("var.each"), "test.hcl", hcl.InitialPos)
+	if _, deferred, err := xlang.EvaluateForEach(eachExpr, s.EvalScope(), false, true); err != nil || !deferred {
+		t.Fatalf("for_each over an unknown: deferred=%v err=%v", deferred, err)
 	}
 }

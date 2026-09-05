@@ -22,13 +22,15 @@ func expr(t *testing.T, src string) hcl.Expression {
 	return e
 }
 
-// scopeWith builds a scope whose var.* entries are the given values.
-func scopeWith(vals map[string]cty.Value) *Scope {
+// scopeWith builds a scope whose var.* entries are the given values. It hands
+// back the seam scope the checks take, so these cases run against the same
+// evaluation surface an arbitrary Data-backed caller would.
+func scopeWith(vals map[string]cty.Value) *EvalScope {
 	s := NewScope()
 	for k, v := range vals {
 		s.SetVariable(k, v)
 	}
-	return s
+	return s.EvalScope()
 }
 
 // keys renders the pair keys as strings for compact assertions.
