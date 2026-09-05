@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hcldec"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	xaddrs "github.com/opentofu/opentofu/x/addrs"
@@ -201,5 +201,44 @@ func TestSeamPureOnly(t *testing.T) {
 	}
 	if val.IsKnown() {
 		t.Error("uuid() should be unknown under PureOnly")
+	}
+}
+
+// TestSeamCaller pins the one reference a Data implementation cannot serve.
+// `caller` aliases the triggering resource instance inside an action's
+// configuration; it is not an address, so it is carried on the scope rather
+// than looked up. The closed Scope grew a field for it, and a consumer
+// evaluating an action_trigger through the seam needs the same one — without
+// it the seam is strictly less capable than the scope it exists to generalize.
+func TestSeamCaller(t *testing.T) {
+	expr, diags := hclsyntax.ParseExpression([]byte(`caller.id`), "test.tf", hcl.InitialPos)
+	if diags.HasErrors() {
+		t.Fatalf("parse: %s", diags.Error())
+	}
+
+	caller := cty.ObjectVal(map[string]cty.Value{"id": cty.StringVal("i-abc123")})
+	scope := &xlang.EvalScope{Data: &testData{}, Caller: caller}
+	val, evalDiags := scope.EvalExpr(context.Background(), expr, cty.String)
+	if evalDiags.HasErrors() {
+		t.Fatalf("eval: %s", evalDiags.Err())
+	}
+	if got := val.AsString(); got != "i-abc123" {
+		t.Errorf("caller.id = %q, want %q", got, "i-abc123")
+	}
+}
+
+// And a scope that was given no caller must refuse the reference rather than
+// resolve it to null: outside an action_trigger there is no triggering
+// instance, and a silent null would read as one with no attributes.
+func TestSeamCallerUnavailableWithoutOne(t *testing.T) {
+	expr, diags := hclsyntax.ParseExpression([]byte(`caller.id`), "test.tf", hcl.InitialPos)
+	if diags.HasErrors() {
+		t.Fatalf("parse: %s", diags.Error())
+	}
+
+	scope := &xlang.EvalScope{Data: &testData{}}
+	_, evalDiags := scope.EvalExpr(context.Background(), expr, cty.String)
+	if !evalDiags.HasErrors() {
+		t.Fatal("a scope with no caller resolved `caller` anyway")
 	}
 }
