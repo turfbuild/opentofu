@@ -34,6 +34,13 @@ type ActionInvocationInstanceSrc struct {
 	// Resolved provider coordinates, recorded at plan time so apply needs no
 	// re-resolution. (Upstream's AbsProviderConfig does not track a version;
 	// downstream does, so these are carried explicitly.)
+	//
+	// ProviderHostname is the registry host, empty for the default registry.
+	// It is part of the address, not decoration: a namespace and type do not
+	// identify a provider on their own, and an invocation that drops the host
+	// resolves at apply to a different provider than the one the plan chose —
+	// which then has no configured instance behind it.
+	ProviderHostname  string
 	ProviderNamespace string
 	ProviderName      string
 	ProviderVersion   string
