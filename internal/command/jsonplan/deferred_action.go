@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/opentofu/svchost"
+
+	"github.com/opentofu/opentofu/internal/addrs"
 	"github.com/opentofu/opentofu/internal/plans"
 	"github.com/opentofu/opentofu/internal/tofu"
 )
@@ -112,7 +115,7 @@ func MarshalActionInvocations(invocations []*plans.ActionInvocationInstanceSrc, 
 			Address:                   ai.Addr,
 			Type:                      ai.Type,
 			Name:                      actionNameFromAddr(ai.Addr),
-			ProviderName:              ai.ProviderNamespace + "/" + ai.ProviderName,
+			ProviderName:              actionProviderName(ai),
 			TriggeringResourceAddress: ai.TriggeringResourceAddr,
 			TriggeringEvent:           ai.TriggerEvent,
 		}
@@ -127,6 +130,30 @@ func MarshalActionInvocations(invocations []*plans.ActionInvocationInstanceSrc, 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
 	return out, nil
+}
+
+// actionProviderName renders an invocation's provider the way a resource
+// change's provider_name renders (MarshalResourceChanges:
+// rc.ProviderAddr.Provider.String()) -- through the same String(), so the two
+// arrays of one plan document cannot spell a single provider two ways. Going
+// through addrs.Provider rather than concatenating the parts is what makes that
+// true of a punycode-vs-unicode hostname as well as of a dropped one; a
+// namespace and type do not identify a provider on their own. An empty hostname
+// means the default registry, per ActionInvocationInstanceSrc's contract.
+func actionProviderName(ai *plans.ActionInvocationInstanceSrc) string {
+	if ai.ProviderNamespace == "" && ai.ProviderName == "" {
+		// Nothing to qualify. Returning "" lets the omitempty tag actually omit
+		// the field, where concatenating emitted a bare "/".
+		return ""
+	}
+	host := svchost.Hostname(ai.ProviderHostname)
+	if host == "" {
+		host = addrs.DefaultProviderRegistryHost
+	}
+	// Built directly rather than through addrs.NewProvider, which validates the
+	// parts and panics on a rejected one; String() itself only panics on a zero
+	// value, which the guard above has already excluded.
+	return addrs.Provider{Hostname: host, Namespace: ai.ProviderNamespace, Type: ai.ProviderName}.String()
 }
 
 // actionInvocationFires reports whether a triggering event runs given the
