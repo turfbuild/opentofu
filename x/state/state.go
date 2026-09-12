@@ -57,6 +57,40 @@ type Locker = statemgr.Locker
 type LockInfo = statemgr.LockInfo
 type LockError = statemgr.LockError
 
+// SnapshotMeta describes the persisted state snapshot a manager most recently
+// read or wrote, and PersistentMeta is the optional manager extension that
+// reports it.
+type SnapshotMeta = statemgr.SnapshotMeta
+type PersistentMeta = statemgr.PersistentMeta
+
+// SnapshotTerraformVersion reports the OpenTofu version recorded in the state
+// snapshot the given manager most recently read or persisted, and whether it is
+// known at all.
+//
+// Unknown (false) means either that the manager does not implement
+// PersistentMeta — statemgr.NewFullFake does not — or that it has no persisted
+// snapshot yet, which is the state of a workspace nothing has written to. It is
+// deliberately distinct from an empty version string so a caller can tell
+// "nothing has written this state" from "something wrote it without saying
+// what".
+//
+// Note this is not the version the calling program links against: the point of
+// the call is to report who wrote the bytes, which is the same question
+// `tofu show -json` answers with its terraform_version field. A manager's
+// exported statefile.File cannot answer it — statefile.New stamps the running
+// version — which is why the manager's own snapshot metadata is the source.
+func SnapshotTerraformVersion(m Full) (string, bool) {
+	pm, ok := m.(statemgr.PersistentMeta)
+	if !ok {
+		return "", false
+	}
+	v := pm.StateSnapshotMeta().TerraformVersion
+	if v == nil {
+		return "", false
+	}
+	return v.String(), true
+}
+
 // State manager helpers.
 var NewLockInfo = statemgr.NewLockInfo
 

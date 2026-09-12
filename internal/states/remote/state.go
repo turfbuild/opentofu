@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	uuid "github.com/hashicorp/go-uuid"
+	version "github.com/hashicorp/go-version"
 
 	"github.com/opentofu/opentofu/internal/backend/local"
 	"github.com/opentofu/opentofu/internal/encryption"
@@ -43,9 +44,18 @@ type State struct {
 	lineage, readLineage string
 	serial, readSerial   uint64
 	readEncryption       encryption.EncryptionStatus
-	mu                   sync.Mutex
-	state, readState     *states.State
-	disableLocks         bool
+
+	// terraformVersion is the version recorded in the snapshot most recently
+	// read or persisted, reported through StateSnapshotMeta. Tracking it here
+	// is what lets a caller ask which version wrote the state it is looking
+	// at: the read value is otherwise discarded, and the statefile.File this
+	// manager can reconstruct is stamped with the *running* version rather
+	// than the one the bytes carried.
+	terraformVersion *version.Version
+
+	mu               sync.Mutex
+	state, readState *states.State
+	disableLocks     bool
 
 	// If this is set then the state manager will decline to store intermediate
 	// state snapshots created while a OpenTofu Core apply operation is in
@@ -147,6 +157,7 @@ func (s *State) WriteStateForMigration(f *statefile.File, force bool) error {
 	s.state = f.State.DeepCopy()
 	s.lineage = f.Lineage
 	s.serial = f.Serial
+	s.terraformVersion = f.TerraformVersion
 
 	return nil
 }
@@ -172,6 +183,7 @@ func (s *State) refreshState(ctx context.Context) error {
 		s.readState = nil
 		s.lineage = ""
 		s.serial = 0
+		s.terraformVersion = nil
 		return nil
 	}
 
@@ -182,6 +194,7 @@ func (s *State) refreshState(ctx context.Context) error {
 
 	s.lineage = stateFile.Lineage
 	s.serial = stateFile.Serial
+	s.terraformVersion = stateFile.TerraformVersion
 	s.state = stateFile.State
 
 	// Properties from the remote must be separate so we can
@@ -253,6 +266,9 @@ func (s *State) PersistState(ctx context.Context, schemas *tofu.Schemas) error {
 	s.readLineage = s.lineage
 	s.readEncryption = encryption.StatusSatisfied
 	s.readSerial = s.serial
+	// statefile.Write stamped the running version into f as it serialized,
+	// so this is the version the bytes we just put actually carry.
+	s.terraformVersion = f.TerraformVersion
 	return nil
 }
 
@@ -327,5 +343,7 @@ func (s *State) StateSnapshotMeta() statemgr.SnapshotMeta {
 	return statemgr.SnapshotMeta{
 		Lineage: s.lineage,
 		Serial:  s.serial,
+
+		TerraformVersion: s.terraformVersion,
 	}
 }
