@@ -26,6 +26,7 @@ import (
 	"github.com/opentofu/opentofu/internal/states"
 	"github.com/opentofu/opentofu/internal/states/statefile"
 	"github.com/opentofu/opentofu/internal/states/statemgr"
+	"github.com/opentofu/opentofu/version"
 )
 
 func TestState_impl(t *testing.T) {
@@ -533,5 +534,32 @@ func TestState_PersistStateCorrectlyWithoutEphemeral(t *testing.T) {
 	}
 	if got, want := resState.Addr.Resource.Mode, addrs.ManagedResourceMode; got != want {
 		t.Fatalf("expected the resource to be %s but it's %s", want, got)
+	}
+}
+
+// TestState_SnapshotMetaTerraformVersion asserts the cloud manager reports the
+// version its snapshot records, the same way states/remote.State does.
+//
+// Only the persist arm is reachable with the mock client here; the refresh arm
+// is covered against a seeded older snapshot in states/remote, and both
+// managers set the field from the same two places.
+//
+// Like every test in this package it is skipped unless TF_TFC_TEST is set, so
+// it gates nothing on a default run — states/remote is where this behavior is
+// held to account.
+func TestState_SnapshotMetaTerraformVersion(t *testing.T) {
+	cloudState := testCloudState(t)
+
+	if got := cloudState.StateSnapshotMeta().TerraformVersion; got != nil {
+		t.Errorf("TerraformVersion = %v before anything is persisted; want nil", got)
+	}
+
+	if err := cloudState.PersistState(t.Context(), nil); err != nil {
+		t.Fatalf("persisting: %s", err)
+	}
+
+	got := cloudState.StateSnapshotMeta().TerraformVersion
+	if got == nil || got.String() != version.Version {
+		t.Errorf("after persist, TerraformVersion = %v; want %s", got, version.Version)
 	}
 }

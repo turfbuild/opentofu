@@ -6,6 +6,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"sync"
@@ -861,5 +862,79 @@ func TestState_IsLockingEnabled(t *testing.T) {
 				t.Errorf("IsLockingEnabled() = %v; want %v", gotResult, tt.wantResult)
 			}
 		})
+	}
+}
+
+// TestStateSnapshotMetaTerraformVersion asserts that the manager reports the
+// version recorded in the snapshot it is actually holding, rather than the
+// version of the program doing the asking.
+//
+// The distinction only becomes visible against a snapshot some *older* version
+// wrote, which is why this seeds one: a manager that reported the running
+// version unconditionally — as this one did, by tracking only lineage and
+// serial — passes any test whose fixture was written by the running version.
+func TestStateSnapshotMetaTerraformVersion(t *testing.T) {
+	const priorVersion = "1.5.7"
+
+	c := &mockClient{
+		current: []byte(`{
+	"version": 4,
+	"terraform_version": "` + priorVersion + `",
+	"serial": 3,
+	"lineage": "some meaningless value",
+	"outputs": {},
+	"resources": []
+}
+`),
+	}
+	s := NewState(c, encryption.StateEncryptionDisabled())
+
+	if err := s.RefreshState(t.Context()); err != nil {
+		t.Fatalf("refreshing: %s", err)
+	}
+	if got := s.StateSnapshotMeta().TerraformVersion; got == nil || got.String() != priorVersion {
+		t.Errorf("after refresh, TerraformVersion = %v; want %s", got, priorVersion)
+	}
+
+	// Persisting rewrites the snapshot, and statefile.Write stamps the running
+	// version into the bytes, so the reported version must move with them.
+	// The state has to actually change for that to happen: an unchanged state
+	// short-circuits without a Put, and reporting a new version for a snapshot
+	// nobody rewrote would be its own kind of lie.
+	next := s.State()
+	next.RootModule().SetResourceInstanceCurrent(
+		addrs.Resource{
+			Mode: addrs.ManagedResourceMode,
+			Name: "myfile",
+			Type: "local_file",
+		}.Instance(addrs.NoKey),
+		&states.ResourceInstanceObjectSrc{
+			AttrsFlat: map[string]string{"filename": "file.txt"},
+			Status:    states.ObjectReady,
+		},
+		addrs.AbsProviderConfig{
+			Module:   addrs.RootModule,
+			Provider: addrs.NewDefaultProvider("local"),
+		},
+		addrs.NoKey,
+	)
+	if err := s.WriteState(next); err != nil {
+		t.Fatalf("writing: %s", err)
+	}
+	if err := s.PersistState(t.Context(), nil); err != nil {
+		t.Fatalf("persisting: %s", err)
+	}
+	if got := s.StateSnapshotMeta().TerraformVersion; got == nil || got.String() != version.Version {
+		t.Errorf("after persist, TerraformVersion = %v; want %s", got, version.Version)
+	}
+
+	// Cross-check against the bytes the client is holding: the reported version
+	// is only worth anything if it is the one a reader of the snapshot sees.
+	persisted, err := statefile.Read(bytes.NewReader(c.current), encryption.StateEncryptionDisabled())
+	if err != nil {
+		t.Fatalf("reading back persisted snapshot: %s", err)
+	}
+	if got := persisted.TerraformVersion; got == nil || got.String() != version.Version {
+		t.Errorf("persisted snapshot records TerraformVersion %v; want %s", got, version.Version)
 	}
 }
