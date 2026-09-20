@@ -48,6 +48,25 @@ func TestImpliedProviderForUnqualifiedType(t *testing.T) {
 	}
 }
 
+func TestNewBuiltInProvider(t *testing.T) {
+	got := NewBuiltInProvider("terraform")
+	if got.String() != "terraform.io/builtin/terraform" || !got.IsBuiltIn() {
+		t.Fatalf("NewBuiltInProvider(terraform) = %q (builtin=%v)", got, got.IsBuiltIn())
+	}
+	if got.Hostname != BuiltInProviderHost || got.Namespace != BuiltInProviderNamespace {
+		t.Fatalf("built-in address %q is not under %s/%s", got, BuiltInProviderHost, BuiltInProviderNamespace)
+	}
+	// A host that re-parses a state record's provider string must land on the
+	// same identity, since that is how it decides not to install one.
+	parsed, err := ParseProviderSourceString("terraform.io/builtin/terraform")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parsed.IsBuiltIn() || parsed != got {
+		t.Fatalf("re-parsed %q (builtin=%v), want %q", parsed, parsed.IsBuiltIn(), got)
+	}
+}
+
 func TestImpliedProviderCutsAtFirstUnderscore(t *testing.T) {
 	cases := map[string]string{
 		"random_pet":           "random",

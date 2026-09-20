@@ -12,6 +12,7 @@ consumers do not couple themselves to internal package layouts.
 | --- | --- |
 | `x/addrs` | Resource addressing: addresses, references, instance keys |
 | `x/backend` (+ `x/backend/init`) | State-storage backends and the backend registry |
+| `x/builtinproviders` | Built-in providers (`terraform_data`) served as go-plugin provider servers |
 | `x/configs` | Configuration parsing, module loading, schema types, body decoding, reference extraction |
 | `x/encryption` | State encryption configuration |
 | `x/jsonplan` | The canonical `tofu show -json` plan marshaller |

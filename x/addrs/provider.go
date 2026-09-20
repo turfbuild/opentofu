@@ -31,6 +31,18 @@ const DefaultProviderRegistryHost = addrs.DefaultProviderRegistryHost
 // registry host and the "hashicorp" namespace.
 var NewDefaultProvider = addrs.NewDefaultProvider
 
+// BuiltInProviderHost and BuiltInProviderNamespace are the fixed hostname and
+// namespace of every built-in provider address ("terraform.io/builtin/…").
+// No registry serves them; a library host consults x/builtinproviders.
+const (
+	BuiltInProviderHost      = addrs.BuiltInProviderHost
+	BuiltInProviderNamespace = addrs.BuiltInProviderNamespace
+)
+
+// NewBuiltInProvider returns the address of a built-in provider by type name.
+// Provider.IsBuiltIn recognizes the result.
+var NewBuiltInProvider = addrs.NewBuiltInProvider
+
 // ImpliedProviderForUnqualifiedType returns the provider address a bare type
 // name implies when no required_providers entry claims it — the builtin
 // "terraform" provider for that one name, and a default-registry hashicorp
