@@ -13,10 +13,15 @@
 // internal-package boundary and no registry serves it. This package is the
 // missing half: the set of built-in providers, their addresses, and Serve,
 // which turns the calling process into a plugin server for one of them. The
-// serving shape mirrors internal/provider-simple/main; the host re-executes
-// itself (or any binary linking this package) with an argument that routes to
-// Serve, and its plugin client connects exactly as it would to a downloaded
-// binary.
+// serving shape mirrors internal/provider-simple/main: a small binary linking
+// this package calls Serve with the provider's name, and the host's plugin
+// client launches it exactly as it would a downloaded provider.
+//
+// That binary is its own when the host's plugin client is typed against a
+// different generated tfplugin5 package than this module's (provider-client's,
+// say): both register the same proto names, and a process linking both panics
+// at init. So the server links this package and the client does not, and the
+// two meet over the plugin handshake like any provider and any client.
 //
 // Not covered: terraform_remote_state. Core reads it past the provider
 // interface (ReadDataSourceEncrypted, with the state encryption it holds), and
