@@ -3,8 +3,9 @@
 
 // Package refactoring is a stable boundary over OpenTofu's internal
 // refactoring package, which implements the state-motion semantics of the
-// `moved {}` block: finding the statements in a configuration, inferring the
-// implied count↔no-count statements, and executing them against a state.
+// `moved {}` block — finding the statements in a configuration, inferring the
+// implied count↔no-count statements, and executing them against a state — and
+// finds the `removed {}` blocks whose statements override an orphan's destroy.
 //
 // Move endpoints cannot be interpreted outside this package — the internals of
 // addrs.MoveEndpoint and addrs.MoveEndpointInModule are unexported, and the
@@ -14,6 +15,7 @@
 package refactoring
 
 import (
+	"github.com/opentofu/opentofu/internal/configs"
 	"github.com/opentofu/opentofu/internal/refactoring"
 )
 
@@ -61,4 +63,28 @@ func ValidateMoveStatementGraph(stmts []MoveStatement) error {
 		return diags.Err()
 	}
 	return nil
+}
+
+// RemoveStatement is a single `removed {}` block with its From address made
+// absolute to the root module: a resource, or a whole module. Destroy is the
+// block's lifecycle.destroy (false when the block has no lifecycle, the
+// decoder's default, which it warns about).
+//
+// From's type is internal, but its TargetContains is callable on the value:
+// From.TargetContains(addr) reports whether a resource-instance address falls
+// under the statement — a module statement contains everything beneath it.
+// When several statements contain an address, the last one in the returned
+// order is the one OpenTofu's orphan planning obeys.
+type RemoveStatement = refactoring.RemoveStatement
+
+// FindRemoveStatements returns every `removed {}` block declared anywhere in
+// the given configuration tree, in a deterministic but undefined order, and an
+// error when a block names a resource or module that the configuration still
+// declares ("Removed resource block still exists").
+func FindRemoveStatements(root *configs.Config) ([]*RemoveStatement, error) {
+	stmts, diags := refactoring.FindRemoveStatements(root)
+	if diags.HasErrors() {
+		return nil, diags.Err()
+	}
+	return stmts, nil
 }
