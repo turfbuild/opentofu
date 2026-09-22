@@ -221,3 +221,81 @@ resource "random_pet" "a" {
 		t.Errorf("state addresses = %v, want [random_pet.a[0]]", got)
 	}
 }
+
+// lastContaining reports which statement, by index, is the last to contain addr —
+// the precedence OpenTofu's orphan planning applies — or -1.
+func lastContaining(t *testing.T, stmts []*xrefactoring.RemoveStatement, addr string) int {
+	t.Helper()
+	inst, err := xaddrs.ParseAbsResourceInstance(addr)
+	if err != nil {
+		t.Fatalf("parse %q: %v", addr, err)
+	}
+	found := -1
+	for i, s := range stmts {
+		if s.From.TargetContains(inst) {
+			found = i
+		}
+	}
+	return found
+}
+
+func TestFindRemoveStatements_ResourceAndModule(t *testing.T) {
+	cfg := loadConfig(t, `
+removed {
+  from = random_pet.gone
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.old
+  lifecycle {
+    destroy = true
+  }
+}
+`)
+	stmts, err := xrefactoring.FindRemoveStatements(cfg)
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	if len(stmts) != 2 {
+		t.Fatalf("got %d statements, want 2", len(stmts))
+	}
+
+	cases := []struct {
+		addr    string
+		want    int
+		destroy bool
+	}{
+		{"random_pet.gone", 0, false},
+		{`random_pet.gone["k"]`, 0, false},
+		{"module.old.random_pet.x", 1, true},
+		{"module.old[1].module.inner.random_pet.x[0]", 1, true},
+		{"random_pet.kept", -1, false},
+		{"module.other.random_pet.gone", -1, false},
+	}
+	for _, c := range cases {
+		got := lastContaining(t, stmts, c.addr)
+		if got != c.want {
+			t.Errorf("%s: contained by statement %d, want %d", c.addr, got, c.want)
+			continue
+		}
+		if got >= 0 && stmts[got].Destroy != c.destroy {
+			t.Errorf("%s: destroy = %t, want %t", c.addr, stmts[got].Destroy, c.destroy)
+		}
+	}
+}
+
+func TestFindRemoveStatements_StillDeclared(t *testing.T) {
+	cfg := loadConfig(t, `
+resource "random_pet" "kept" {}
+
+removed {
+  from = random_pet.kept
+}
+`)
+	if _, err := xrefactoring.FindRemoveStatements(cfg); err == nil {
+		t.Fatal("a removed block naming a declared resource found without error")
+	}
+}
