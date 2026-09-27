@@ -90,8 +90,8 @@ var validActionTriggerEvents = map[string]ActionTriggerEvent{
 // ActionTriggerOnFailure controls what happens to the triggering operation when
 // the action fails: halt (default — the operation fails and dependents are
 // blocked), continue (the action's failure is downgraded to a warning and the
-// operation + dependents proceed), or taint (after_create — keep the object but
-// mark it for replacement next plan).
+// operation + dependents proceed), or taint (as halt, and the resource is
+// additionally marked tainted so that the next apply replaces it).
 type ActionTriggerOnFailure string
 
 const (
@@ -115,6 +115,13 @@ type ActionTrigger struct {
 	// OnFailure is how a failure of the triggered action is handled; defaults to
 	// ActionOnFailureHalt when the argument is omitted.
 	OnFailure ActionTriggerOnFailure
+
+	// Condition is the trigger's optional gate: a boolean expression that
+	// must evaluate to true at plan time for the trigger's actions to be
+	// invoked. It is parsed and retained only; evaluation — including the
+	// requirement that it be known at plan time — belongs to the consumer.
+	// Nil when absent.
+	Condition hcl.Expression
 
 	DeclRange hcl.Range
 }
@@ -192,6 +199,9 @@ func decodeActionTriggerBlock(block *hcl.Block) (*ActionTrigger, hcl.Diagnostics
 		mode, ofDiags := decodeTriggerOnFailure(attr)
 		diags = append(diags, ofDiags...)
 		at.OnFailure = mode
+	}
+	if attr, exists := content.Attributes["condition"]; exists {
+		at.Condition = attr.Expr
 	}
 
 	return at, diags
@@ -281,9 +291,8 @@ type ActionTriggerDecl struct {
 	Actions   []hcl.Traversal // each traversal names action.<type>.<name>
 	OnFailure ActionTriggerOnFailure
 
-	// Condition is accepted by the schema and reserved: it parses, but
-	// consumers refuse a trigger that carries one until action conditions
-	// are implemented. Nil when absent.
+	// Condition is the trigger's optional gate, exactly as on the nested
+	// form (ActionTrigger.Condition). Nil when absent.
 	Condition hcl.Expression
 
 	DeclRange hcl.Range
@@ -400,6 +409,7 @@ var actionTriggerBlockSchema = &hcl.BodySchema{
 		{Name: "events", Required: true},
 		{Name: "actions", Required: true},
 		{Name: "on_failure"},
+		{Name: "condition"},
 	},
 }
 
