@@ -1,0 +1,150 @@
+// Copyright (c) The Turf Authors
+// SPDX-License-Identifier: MPL-2.0
+
+// Package addrs is a stable boundary over OpenTofu's internal addrs package.
+// It re-exports the canonical resource-addressing types and wraps the OpenTofu
+// parsers/formatters so consumers can parse, format, and reason about
+// addresses without importing OpenTofu internals (or tfdiags) directly.
+package addrs
+
+import (
+	"github.com/opentofu/opentofu/internal/addrs"
+)
+
+// Address types.
+type (
+	// Target is a parsed targeting address (resource, resource instance, or
+	// module instance), with Targetable its subject interface — the form the
+	// address-targeted action_trigger block's `target` decodes to.
+	Target     = addrs.Target
+	Targetable = addrs.Targetable
+
+	AbsResource         = addrs.AbsResource
+	AbsResourceInstance = addrs.AbsResourceInstance
+	Resource            = addrs.Resource
+	ResourceInstance    = addrs.ResourceInstance
+	ConfigResource      = addrs.ConfigResource
+	ModuleInstance      = addrs.ModuleInstance
+	InstanceKey         = addrs.InstanceKey
+	IntKey              = addrs.IntKey
+	StringKey           = addrs.StringKey
+	ResourceMode        = addrs.ResourceMode
+	AbsOutputValue      = addrs.AbsOutputValue
+	OutputValue         = addrs.OutputValue
+	Module              = addrs.Module
+)
+
+// Move endpoints — the two halves of a `moved {}` block as written in
+// configuration. MoveEndpoint's internals are unexported, so the only thing a
+// consumer can do with one is render it (String) or resolve it against the
+// module it was declared in (ConfigMoveable), which yields either a
+// ConfigResource or a Module.
+type (
+	MoveEndpoint   = addrs.MoveEndpoint
+	ConfigMoveable = addrs.ConfigMoveable
+)
+
+// Reference subjects — the typed forms an expression reference can name.
+// Referenceable is the interface every subject implements; the rest are the
+// concrete subjects a consumer type-switches over. Exposed so a consumer can
+// classify a reference from its typed subject instead of re-parsing the
+// rendered string.
+type (
+	Referenceable            = addrs.Referenceable
+	InputVariable            = addrs.InputVariable
+	LocalValue               = addrs.LocalValue
+	ModuleCall               = addrs.ModuleCall
+	ModuleCallInstance       = addrs.ModuleCallInstance
+	ModuleCallOutput         = addrs.ModuleCallOutput
+	ModuleCallInstanceOutput = addrs.ModuleCallInstanceOutput
+)
+
+// Resource modes.
+const (
+	InvalidResourceMode   = addrs.InvalidResourceMode
+	ManagedResourceMode   = addrs.ManagedResourceMode
+	DataResourceMode      = addrs.DataResourceMode
+	EphemeralResourceMode = addrs.EphemeralResourceMode
+)
+
+// NoKey is the instance key for resources without count or for_each.
+var NoKey = addrs.NoKey
+
+// RootModuleInstance is the address of the root module.
+var RootModuleInstance = addrs.RootModuleInstance
+
+// ParseAbsResourceInstance parses an absolute resource-instance address string
+// such as "aws_instance.x", "data.aws_ami.latest", "module.foo[0].aws_instance.x",
+// or `module.foo["a"].module.bar.aws_instance.x[2]`.
+// The first error from the underlying parser is returned as a regular Go error
+// so callers don't need to import OpenTofu's tfdiags package.
+func ParseAbsResourceInstance(str string) (AbsResourceInstance, error) {
+	addr, diags := addrs.ParseAbsResourceInstanceStr(str)
+	if diags.HasErrors() {
+		return AbsResourceInstance{}, diags.Err()
+	}
+	return addr, nil
+}
+
+// ParseModuleInstance parses a module-instance address such as "module.foo" or
+// `module.foo[0].module.bar["k"]`. The empty string parses as the root module.
+func ParseModuleInstance(str string) (ModuleInstance, error) {
+	if str == "" {
+		return RootModuleInstance, nil
+	}
+	addr, diags := addrs.ParseModuleInstanceStr(str)
+	if diags.HasErrors() {
+		return nil, diags.Err()
+	}
+	return addr, nil
+}
+
+// ParseTarget parses a targeting address — a module instance, a resource, or a
+// resource instance, as `-target` accepts one: "module.foo",
+// "aws_instance.x", `module.foo[0].aws_instance.x["k"]`. The subject is a
+// Targetable; its concrete type says which of the three it is.
+func ParseTarget(str string) (*Target, error) {
+	target, diags := addrs.ParseTargetStr(str)
+	if diags.HasErrors() {
+		return nil, diags.Err()
+	}
+	return target, nil
+}
+
+// FormatInstanceKeySuffix returns the bracketed instance-key suffix used when
+// rendering a resource or module-instance address. NoKey produces "".
+// IntKey(0) produces "[0]"; StringKey("k") produces `["k"]` with HCL-correct
+// escaping.
+func FormatInstanceKeySuffix(k InstanceKey) string {
+	if k == NoKey {
+		return ""
+	}
+	return k.String()
+}
+
+// ResourceModeOf reports which of the three resource modes a resource-instance
+// address string denotes, and whether it parsed at all. Callers deciding "is
+// this the kind of address this tool accepts?" should ask this once rather than
+// stacking per-mode predicates, so a fourth mode cannot slip past a check that
+// only knew about the modes existing when it was written.
+func ResourceModeOf(str string) (ResourceMode, bool) {
+	addr, err := ParseAbsResourceInstance(str)
+	if err != nil {
+		return InvalidResourceMode, false
+	}
+	return addr.Resource.Resource.Mode, true
+}
+
+// IsDataAddr reports whether the given resource-instance address refers to a
+// data source. Returns false for unparseable input.
+func IsDataAddr(str string) bool {
+	mode, ok := ResourceModeOf(str)
+	return ok && mode == DataResourceMode
+}
+
+// IsEphemeralAddr reports whether the given resource-instance address refers to
+// an ephemeral resource. Returns false for unparseable input.
+func IsEphemeralAddr(str string) bool {
+	mode, ok := ResourceModeOf(str)
+	return ok && mode == EphemeralResourceMode
+}
