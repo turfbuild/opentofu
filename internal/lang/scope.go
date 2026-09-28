@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 
 	"github.com/opentofu/opentofu/internal/addrs"
@@ -38,6 +39,13 @@ type Scope struct {
 	// SelfAddr is the address that the "self" object should be an alias of,
 	// or nil if the "self" object should not be available at all.
 	SelfAddr addrs.Referenceable
+
+	// CallerValue is the value that the "caller" object should resolve to,
+	// or cty.NilVal if the "caller" object should not be available at all.
+	// It is set only when evaluating an action's configuration for a
+	// resource's action_trigger, where it holds the triggering resource
+	// instance's value.
+	CallerValue cty.Value
 
 	// SourceAddr is the address of the source item for the scope. This will
 	// affect any scoped resources that can be accessed from within this scope.
