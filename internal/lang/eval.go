@@ -378,6 +378,11 @@ func (s *Scope) evalContext(ctx context.Context, parent *hcl.EvalContext, refs [
 			continue
 		}
 
+		if ref.Subject == addrs.Caller {
+			diags = diags.Append(varBuilder.putCallerValue(ref))
+			continue
+		}
+
 		if subj, ok := ref.Subject.(addrs.ProviderFunction); ok {
 			// Inject function directly into context
 			if _, ok := hclCtx.Functions[subj.String()]; !ok {
@@ -416,6 +421,7 @@ type evalVarBuilder struct {
 	forEachAttrs       map[string]cty.Value
 	checkBlocks        map[string]cty.Value
 	self               cty.Value
+	caller             cty.Value
 }
 
 func (s *Scope) newEvalVarBuilder() *evalVarBuilder {
@@ -484,6 +490,22 @@ func (b *evalVarBuilder) putSelfValue(ctx context.Context, selfAddr addrs.Refere
 	}
 	diags = diags.Append(hclDiags)
 
+	return diags
+}
+
+func (b *evalVarBuilder) putCallerValue(ref *addrs.Reference) tfdiags.Diagnostics {
+	var diags tfdiags.Diagnostics
+
+	if b.s.CallerValue == cty.NilVal {
+		return diags.Append(&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  `Invalid "caller" reference`,
+			Detail:   `The "caller" object is only available inside an action configuration evaluated for a resource's action_trigger, where it refers to the triggering resource instance.`,
+			Subject:  ref.SourceRange.ToHCL().Ptr(),
+		})
+	}
+
+	b.caller = b.s.CallerValue
 	return diags
 }
 
@@ -608,6 +630,10 @@ func (b *evalVarBuilder) buildAllVariablesInto(vals map[string]cty.Value) {
 
 	if b.self != cty.NilVal {
 		vals["self"] = b.self
+	}
+
+	if b.caller != cty.NilVal {
+		vals["caller"] = b.caller
 	}
 }
 
