@@ -55,6 +55,14 @@ type Module struct {
 
 	Checks map[string]*Check
 
+	// Actions holds Terraform 1.14+ provider action blocks, keyed by
+	// "action.<type>.<name>". Additive downstream extension; see action.go.
+	Actions map[string]*Action
+
+	// ActionTriggers holds top-level address-targeted action_trigger blocks,
+	// keyed by name. Additive downstream extension; see action.go.
+	ActionTriggers map[string]*ActionTriggerDecl
+
 	Tests map[string]*TestFile
 
 	// IsOverridden indicates if the module is being overridden. It's used in
@@ -111,6 +119,10 @@ type File struct {
 	Removed []*Removed
 
 	Checks []*Check
+
+	Actions []*Action
+
+	ActionTriggers []*ActionTriggerDecl
 }
 
 // SelectiveLoader allows the consumer to only load and validate the portions of files needed for the given operations/contexts
@@ -178,6 +190,8 @@ func NewModuleUneval(primaryFiles, overrideFiles []*File, sourceDir string, load
 		DataResources:      map[string]*Resource{},
 		EphemeralResources: map[string]*Resource{},
 		Checks:             map[string]*Check{},
+		Actions:            map[string]*Action{},
+		ActionTriggers:     map[string]*ActionTriggerDecl{},
 		ProviderMetas:      map[addrs.Provider]*ProviderMeta{},
 		Tests:              map[string]*TestFile{},
 		SourceDir:          sourceDir,
@@ -544,6 +558,49 @@ func (m *Module) appendFile(file *File) hcl.Diagnostics {
 		m.Checks[c.Name] = c
 	}
 
+	for _, a := range file.Actions {
+		key := a.moduleUniqueKey()
+		if existing, exists := m.Actions[key]; exists {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("Duplicate action %q configuration", existing.Name),
+				Detail:   fmt.Sprintf("An action named %q of type %q was already declared at %s. Action names must be unique per type in each module.", existing.Name, existing.Type, existing.DeclRange),
+				Subject:  &a.DeclRange,
+			})
+			continue
+		}
+		m.Actions[key] = a
+
+		// set the provider FQN for the action, the same way the resource loops
+		// above do: an explicit `provider` argument resolves through this
+		// module's required_providers, and an absent one through the type
+		// prefix it implies.
+		if a.ProviderConfigRef != nil {
+			a.Provider = m.ProviderForLocalConfig(a.ProviderConfigAddr())
+		} else {
+			implied, err := addrs.ParseProviderPart(a.ImpliedProvider())
+			if err == nil {
+				a.Provider = m.ImpliedProviderForUnqualifiedType(implied)
+			}
+			// No diagnostic: an action type that cannot imply a valid provider
+			// name is already reported by the block decoder.
+		}
+	}
+
+	for _, t := range file.ActionTriggers {
+		key := t.moduleUniqueKey()
+		if existing, exists := m.ActionTriggers[key]; exists {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("Duplicate action_trigger %q configuration", existing.Name),
+				Detail:   fmt.Sprintf("An action_trigger named %q was already declared at %s. Trigger names must be unique per module.", existing.Name, existing.DeclRange),
+				Subject:  &t.DeclRange,
+			})
+			continue
+		}
+		m.ActionTriggers[key] = t
+	}
+
 	// Handle the provider associations for all data resources together.
 	for _, r := range m.DataResources {
 		// set the provider FQN for the resource
@@ -819,6 +876,15 @@ func (m *Module) mergeFile(file *File) hcl.Diagnostics {
 			Summary:  "Cannot override 'Removed' blocks",
 			Detail:   "Removed blocks can appear only in normal files, not in override files.",
 			Subject:  m.DeclRange.Ptr(),
+		})
+	}
+
+	for _, t := range file.ActionTriggers {
+		diags = append(diags, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Cannot override 'action_trigger' blocks",
+			Detail:   "Action trigger blocks can appear only in normal files, not in override files.",
+			Subject:  t.DeclRange.Ptr(),
 		})
 	}
 

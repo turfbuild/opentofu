@@ -426,6 +426,19 @@ func (c *Config) addProviderRequirements(reqs getproviders.Requirements, qualifs
 	c.collectImplicitProviders(c.Module.DataResources, reqs, qualifs)
 	c.collectImplicitProviders(c.Module.EphemeralResources, reqs, qualifs)
 
+	// An action block depends on the provider serving its type the way a
+	// resource does (downstream: Terraform 1.14 actions), so an action-only
+	// provider is installed, locked and listed like any other. No qualification
+	// is recorded: those name resources, and only explain a failed install.
+	for _, a := range c.Module.Actions {
+		if a.Provider.IsZero() {
+			continue
+		}
+		if _, exists := reqs[a.Provider]; !exists {
+			reqs[a.Provider] = nil
+		}
+	}
+
 	// Import blocks that are generating config may also have a custom provider
 	// meta argument. Like the provider meta argument used in resource blocks,
 	// we use this opportunity to load any implicit providers.
