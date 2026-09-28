@@ -107,6 +107,11 @@ func marshalPlannedValues(changes *plans.Changes, schemas *tofu.Schemas) (Module
 	seenModules := make(map[string]bool)
 
 	for _, resource := range changes.Resources {
+		// Deferred changes have no known planned value; they surface only in
+		// deferred_changes[], not the planned-state tree.
+		if resource.DeferredReason != "" {
+			continue
+		}
 		// Deposed instances are always conceptually a destroy, but if they
 		// were gone during refresh then the change becomes a noop.
 		if resource.DeposedKey != states.NotDeposed {

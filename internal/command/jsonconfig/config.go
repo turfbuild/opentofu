@@ -44,9 +44,25 @@ type module struct {
 	Outputs map[string]output `json:"outputs,omitempty"`
 	// Resources are sorted in a user-friendly order that is undefined at this
 	// time, but consistent.
-	Resources   []resource            `json:"resources,omitempty"`
+	Resources []resource `json:"resources,omitempty"`
+	// Actions are the module's action blocks (downstream: Terraform 1.14
+	// actions), sorted by address.
+	Actions     []action              `json:"actions,omitempty"`
 	ModuleCalls map[string]moduleCall `json:"module_calls,omitempty"`
 	Variables   variables             `json:"variables,omitempty"`
+}
+
+// action is an action block in the shape `terraform show -json` prints it:
+// the module-relative address, the type and name, the provider configuration
+// and the count or for_each expression. Terraform prints no expressions for
+// the config block, and neither does this.
+type action struct {
+	Address           string      `json:"address,omitempty"`
+	Type              string      `json:"type,omitempty"`
+	Name              string      `json:"name,omitempty"`
+	ProviderConfigKey string      `json:"provider_config_key,omitempty"`
+	CountExpression   *expression `json:"count_expression,omitempty"`
+	ForEachExpression *expression `json:"for_each_expression,omitempty"`
 }
 
 type moduleCall struct {
@@ -357,6 +373,7 @@ func marshalModule(c *configs.Config, schemas *tofu.Schemas, addr string) (modul
 	rs = append(managedResources, dataResources...)
 	rs = append(rs, ephemeralResources...)
 	module.Resources = rs
+	module.Actions = marshalActions(c.Module.Actions, schemas, addr)
 
 	outputs := make(map[string]output)
 	for _, v := range c.Module.Outputs {
@@ -604,14 +621,55 @@ func marshalResources(resources map[string]*configs.Resource, schemas *tofu.Sche
 	return rs, nil
 }
 
+// marshalActions lists a module's action blocks, sorted by address.
+func marshalActions(actions map[string]*configs.Action, schemas *tofu.Schemas, moduleAddr string) []action {
+	var as []action
+	for _, v := range actions {
+		a := action{
+			Address:           fmt.Sprintf("action.%s.%s", v.Type, v.Name),
+			Type:              v.Type,
+			Name:              v.Name,
+			ProviderConfigKey: opaqueProviderKey(v.ProviderConfigAddr().StringCompact(), moduleAddr),
+		}
+		if !inSingleModuleMode(schemas) {
+			cExp := marshalExpression(v.Count)
+			if !cExp.Empty() {
+				a.CountExpression = &cExp
+			} else {
+				fExp := marshalExpression(v.ForEach)
+				if !fExp.Empty() {
+					a.ForEachExpression = &fExp
+				}
+			}
+		}
+		as = append(as, a)
+	}
+	sort.Slice(as, func(i, j int) bool {
+		return as[i].Address < as[j].Address
+	})
+	return as
+}
+
 // Flatten all resource provider keys in a module and its descendents, such
 // that any resources from providers using a configuration passed through the
 // module call have a direct reference to that provider configuration.
+//
+// Actions are flattened the same way. Terraform does not flatten them: an
+// action in a child module that inherits its provider prints a key, such as
+// "module.child:local", that provider_config does not have. Here it names
+// the configuration the action uses, as a resource's key does.
 func normalizeModuleProviderKeys(m *module, pcs map[string]providerConfig) {
 	for i, r := range m.Resources {
 		if pc, exists := pcs[r.ProviderConfigKey]; exists {
 			if _, hasParent := pcs[pc.parentKey]; hasParent {
 				m.Resources[i].ProviderConfigKey = pc.parentKey
+			}
+		}
+	}
+	for i, a := range m.Actions {
+		if pc, exists := pcs[a.ProviderConfigKey]; exists {
+			if _, hasParent := pcs[pc.parentKey]; hasParent {
+				m.Actions[i].ProviderConfigKey = pc.parentKey
 			}
 		}
 	}
