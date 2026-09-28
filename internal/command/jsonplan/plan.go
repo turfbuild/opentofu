@@ -70,6 +70,15 @@ type Plan struct {
 	Checks             json.RawMessage   `json:"checks,omitempty"`
 	Timestamp          string            `json:"timestamp,omitempty"`
 	Errored            bool              `json:"errored"`
+
+	// DeferredChanges lists resource-instance changes that could not be planned
+	// this round (see ResourceInstanceChangeSrc.DeferredReason). Downstream
+	// extension mirroring Terraform 1.9+ deferred_changes[]; entries are excluded
+	// from ResourceChanges and PlannedValues.
+	DeferredChanges []DeferredResourceChange `json:"deferred_changes,omitempty"`
+	// ActionInvocations lists planned provider-action invocations (Terraform 1.14
+	// actions). Downstream extension marshalled from Changes.ActionInvocations.
+	ActionInvocations []ActionInvocation `json:"action_invocations,omitempty"`
 }
 
 func newPlan() *Plan {
@@ -194,7 +203,7 @@ func MarshalForRenderer(
 		return nil, nil, nil, nil, err
 	}
 
-	if output.ResourceChanges, err = MarshalResourceChanges(p.Changes.Resources, schemas); err != nil {
+	if output.ResourceChanges, err = MarshalResourceChanges(nonDeferredChanges(p.Changes.Resources), schemas); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
@@ -276,11 +285,24 @@ func MarshalForLog(
 		return nil, fmt.Errorf("error marshaling relevant attributes for external changes: %w", err)
 	}
 
-	// output.ResourceChanges
+	// output.ResourceChanges (deferred changes are excluded here and surfaced
+	// under output.DeferredChanges instead)
 	if p.Changes != nil {
-		output.ResourceChanges, err = MarshalResourceChanges(p.Changes.Resources, schemas)
+		output.ResourceChanges, err = MarshalResourceChanges(nonDeferredChanges(p.Changes.Resources), schemas)
 		if err != nil {
 			return nil, fmt.Errorf("error in marshaling resource changes: %w", err)
+		}
+
+		// output.DeferredChanges
+		output.DeferredChanges, err = MarshalDeferredChanges(p.Changes.Resources, schemas)
+		if err != nil {
+			return nil, fmt.Errorf("error in marshaling deferred changes: %w", err)
+		}
+
+		// output.ActionInvocations
+		output.ActionInvocations, err = MarshalActionInvocations(p.Changes.ActionInvocations, p.Changes.Resources)
+		if err != nil {
+			return nil, fmt.Errorf("error in marshaling action invocations: %w", err)
 		}
 	}
 
