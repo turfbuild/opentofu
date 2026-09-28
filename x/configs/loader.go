@@ -1,0 +1,223 @@
+// Copyright (c) The Turf Authors
+// SPDX-License-Identifier: MPL-2.0
+
+package configs
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	hcljson "github.com/hashicorp/hcl/v2/json"
+	"github.com/opentofu/opentofu/internal/configs"
+	"github.com/opentofu/opentofu/internal/configs/configload"
+	"github.com/opentofu/opentofu/internal/configs/symlib"
+	"github.com/spf13/afero"
+)
+
+// FS is the filesystem abstraction the loader and parser read through.
+type FS = afero.Fs
+
+// Snapshot is an in-memory capture of all the configuration files of a
+// loaded module tree, in the same form a saved plan embeds. Mirrors
+// configload.Snapshot.
+type Snapshot = configload.Snapshot
+
+// SnapshotModule is one module's captured files within a Snapshot.
+type SnapshotModule = configload.SnapshotModule
+
+// Loader wraps OpenTofu's config loader for loading complete module trees.
+type Loader struct {
+	loader configload.Loader
+}
+
+// NewLoader creates a new configuration loader.
+// modulesDir is where downloaded modules will be stored (typically ".terraform/modules").
+func NewLoader(modulesDir string) (*Loader, error) {
+	l, err := configload.NewLoader(&configload.Config{
+		ModulesDir: modulesDir,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Loader{loader: l}, nil
+}
+
+// NewLoaderFS creates a configuration loader that reads through the given
+// filesystem instead of the real OS filesystem. Such a loader cannot install
+// modules; installed module directories and the module manifest are still
+// found whenever fs passes real-disk reads through (a union filesystem whose
+// base is the OS filesystem, say).
+func NewLoaderFS(modulesDir string, fs FS) (*Loader, error) {
+	l, err := configload.NewLoader(&configload.Config{
+		ModulesDir: modulesDir,
+		FS:         fs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Loader{loader: l}, nil
+}
+
+// NewLoaderFromSnapshot creates a configuration loader that reads all of its
+// configuration bytes from the given snapshot rather than any filesystem.
+// This is how OpenTofu itself reloads the configuration embedded in a saved
+// plan (mirrors configload.NewLoaderFromSnapshot).
+func NewLoaderFromSnapshot(snap *Snapshot) *Loader {
+	return &Loader{loader: configload.NewLoaderFromSnapshot(snap)}
+}
+
+// LoadConfig loads a complete configuration tree from a directory.
+// This resolves module calls and builds the full Config tree.
+//
+// call supplies the values that statically-evaluated positions resolve
+// against; build it with RootModuleCall.
+func (l *Loader) LoadConfig(ctx context.Context, dir string, call StaticModuleCall) (*Config, error) {
+	cfg, diags := l.loader.LoadConfig(ctx, dir, call)
+	if diags.HasErrors() {
+		return nil, diagsToError(diags)
+	}
+	return cfg, nil
+}
+
+// LoadConfigWithSnapshot is LoadConfig plus an in-memory capture of every
+// configuration file the load consumed, in the same form a saved plan embeds
+// (mirrors configload.(*Loader).LoadConfigWithSnapshot). Reload the capture
+// with NewLoaderFromSnapshot.
+func (l *Loader) LoadConfigWithSnapshot(ctx context.Context, dir string, call StaticModuleCall) (*Config, *Snapshot, error) {
+	cfg, snap, diags := l.loader.LoadConfigWithSnapshot(ctx, dir, call)
+	if diags.HasErrors() {
+		return nil, nil, diagsToError(diags)
+	}
+	return cfg, snap, nil
+}
+
+// ParseModule parses a single module directory without resolving child modules.
+// This is faster when you only need the root module's configuration.
+//
+// call supplies the values that statically-evaluated positions resolve
+// against; build it with RootModuleCall.
+func ParseModule(dir string, call StaticModuleCall) (*Module, error) {
+	return ParseModuleFS(afero.NewOsFs(), dir, call)
+}
+
+// ParseModuleFS is ParseModule reading through the given filesystem instead
+// of the real OS filesystem.
+func ParseModuleFS(fs FS, dir string, call StaticModuleCall) (*Module, error) {
+	parser := configs.NewParser(fs)
+	mod, diags := parser.LoadConfigDir(dir)
+	if diags.HasErrors() {
+		return nil, diagsToError(diags)
+	}
+	// Static evaluation — a module call's source and version, the backend
+	// body, const variables — runs here, against call, as the CLI's
+	// Meta.loadSingleModule does for a module parsed on its own.
+	if diags := mod.Finalize(symlib.EmptyTable, call); diags.HasErrors() {
+		return nil, diagsToError(diags)
+	}
+	return mod, nil
+}
+
+// LoadVariablesFile loads variable values from a .tfvars or .tfvars.json file
+// (or any file passed to -var-file, which follows the same rules). Returns a
+// map of variable name to the parsed HCL expression. Syntax selection matches
+// OpenTofu's addVarsFromFile: a ".json" suffix parses as HCL-JSON, a ".tfvars"
+// suffix as native syntax, and an ambiguous name (process substitution, say)
+// sniffs for a leading "{". A `variable "x" {}` block in the file is the
+// classic declare-vs-assign mistake and gets the same dedicated error.
+func LoadVariablesFile(path string) (map[string]Expression, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseVariablesSource(content, path)
+}
+
+// parseVariablesSource is LoadVariablesFile over bytes already in hand. path
+// is used for syntax selection and diagnostics only.
+func parseVariablesSource(content []byte, path string) (map[string]Expression, error) {
+	extJSON := strings.HasSuffix(path, ".json")
+	extTfvars := strings.HasSuffix(path, ".tfvars")
+	detectJSON := !extJSON && !extTfvars && strings.HasPrefix(strings.TrimSpace(string(content)), "{")
+
+	var file *hcl.File
+	var diags hcl.Diagnostics
+	if extJSON || detectJSON {
+		file, diags = hcljson.Parse(content, path)
+	} else {
+		file, diags = hclsyntax.ParseConfig(content, path, hcl.Pos{Line: 1, Column: 1})
+	}
+	if diags.HasErrors() || file == nil || file.Body == nil {
+		return nil, diagsToError(diags)
+	}
+
+	// Probe for `variable` blocks before the real decode: assigning values is
+	// what a varfile is for, and JustAttributes' generic "blocks are not
+	// allowed" error would bury the actual mistake.
+	content2, _, _ := file.Body.PartialContent(&hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{{Type: "variable", LabelNames: []string{"name"}}},
+	})
+	if len(content2.Blocks) > 0 {
+		name := content2.Blocks[0].Labels[0]
+		return nil, fmt.Errorf(
+			"variable declaration in variables file %s: to declare variable %q, place the block in a .tf file; to set its value here, use the definition syntax: %s = <value>",
+			path, name, name)
+	}
+
+	attrs, diags := file.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, diagsToError(diags)
+	}
+
+	result := make(map[string]Expression, len(attrs))
+	for name, attr := range attrs {
+		result[name] = attr.Expr
+	}
+	return result, nil
+}
+
+// CollectAutoVarFiles returns the auto-loaded variables files of a
+// configuration directory, in OpenTofu's precedence order (later files
+// override earlier ones): terraform.tfvars, terraform.tfvars.json, then every
+// *.auto.tfvars / *.auto.tfvars.json in one combined lexical pass — the two
+// extensions interleave in name order, exactly as addVarsFromDir's single
+// sorted directory listing produces them.
+func CollectAutoVarFiles(dir string) ([]string, error) {
+	var paths []string
+	for _, name := range []string{"terraform.tfvars", "terraform.tfvars.json"} {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			paths = append(paths, p)
+		}
+	}
+	infos, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	// os.ReadDir sorts by filename, so filtering preserves lexical order.
+	for _, info := range infos {
+		name := info.Name()
+		if strings.HasSuffix(name, ".auto.tfvars") || strings.HasSuffix(name, ".auto.tfvars.json") {
+			paths = append(paths, filepath.Join(dir, name))
+		}
+	}
+	return paths, nil
+}
+
+// diagsToError converts HCL diagnostics to an error.
+func diagsToError(diags hcl.Diagnostics) error {
+	if !diags.HasErrors() {
+		return nil
+	}
+	// Return just the first error for simplicity
+	for _, diag := range diags {
+		if diag.Severity == hcl.DiagError {
+			return diag
+		}
+	}
+	return nil
+}
