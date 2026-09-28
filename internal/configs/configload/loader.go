@@ -38,23 +38,42 @@ type Config struct {
 	// .terraform/modules directory, in the common case where this package
 	// is being loaded from the main OpenTofu CLI package.)
 	ModulesDir string
+
+	// FS, if non-nil, is the filesystem the loader reads configuration
+	// (and the module manifest) through, instead of the real OS
+	// filesystem. By default a loader with a caller-provided filesystem
+	// cannot support module installation, for the same reason a
+	// snapshot-backed loader cannot: the installer writes to the real
+	// filesystem only.
+	FS afero.Fs
+
+	// FSCanInstall asserts that the caller-provided FS passes real-disk
+	// reads through — a union filesystem whose base is the OS filesystem —
+	// so module installation may proceed: go-getter writes real disk, the
+	// manifest write is real-OS, and both read back through the union base.
+	// Meaningless when FS is nil (installation is always supported then);
+	// never set it for a filesystem that does not serve the real disk.
+	FSCanInstall bool
 }
 
 // NewLoader creates and returns a loader that reads configuration from the
-// real OS filesystem.
+// real OS filesystem, or from config.FS when one is provided.
 //
 // The loader has some internal state about the modules that are currently
 // installed, which is read from disk as part of this function. If that
 // manifest cannot be read then an error will be returned.
 func NewLoader(config *Config) (*Loader, error) {
-	fs := afero.NewOsFs()
+	fs := config.FS
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
 	parser := configs.NewParser(fs)
 
 	ret := &Loader{
 		parser: parser,
 		modules: moduleMgr{
 			FS:         afero.Afero{Fs: fs},
-			CanInstall: true,
+			CanInstall: config.FS == nil || config.FSCanInstall,
 			Dir:        config.ModulesDir,
 		},
 	}
