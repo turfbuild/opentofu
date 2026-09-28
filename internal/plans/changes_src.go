@@ -76,6 +76,18 @@ type ResourceInstanceChangeSrc struct {
 	// OpenTofu that relates to this change. OpenTofu will save this
 	// byte-for-byte and return it to the provider in the apply call.
 	Private []byte
+
+	// DeferredReason, when non-empty, marks this change as deferred: the
+	// provider could not fully plan it this round (e.g. its config or the
+	// provider config was not yet known). The value is a protocol-level reason
+	// string ("resource_config_unknown", "provider_config_unknown",
+	// "absent_prereq"). jsonplan routes such changes into deferred_changes[]
+	// rather than resource_changes[] / planned_values.
+	//
+	// Downstream extension (Terraform deferred actions; OpenTofu removed
+	// DeferralAllowed in 1.11). In-memory only — like ActionInvocations it is
+	// not serialized to a plan file.
+	DeferredReason string
 }
 
 // Decode unmarshals the raw representation of the instance object being
