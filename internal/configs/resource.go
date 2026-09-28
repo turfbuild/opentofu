@@ -81,6 +81,10 @@ type ManagedResource struct {
 	IgnoreChanges    []hcl.Traversal
 	IgnoreAllChanges bool
 
+	// ActionTriggers holds Terraform 1.14+ lifecycle.action_trigger bindings.
+	// Additive downstream extension; see action.go.
+	ActionTriggers []*ActionTrigger
+
 	CreateBeforeDestroySet bool
 }
 
@@ -305,6 +309,13 @@ func decodeResourceBlock(block *hcl.Block, override bool) (*Resource, hcl.Diagno
 						r.Preconditions = append(r.Preconditions, cr)
 					case "postcondition":
 						r.Postconditions = append(r.Postconditions, cr)
+					}
+				case "action_trigger":
+					// Terraform 1.14+ action_trigger (additive downstream extension).
+					at, atDiags := decodeActionTriggerBlock(block)
+					diags = append(diags, atDiags...)
+					if at != nil {
+						r.Managed.ActionTriggers = append(r.Managed.ActionTriggers, at)
 					}
 				default:
 					// The cases above should be exhaustive for all block types
@@ -566,6 +577,15 @@ func decodeDataBlock(block *hcl.Block, override, nested bool) (*Resource, hcl.Di
 					case "postcondition":
 						r.Postconditions = append(r.Postconditions, cr)
 					}
+				case "action_trigger":
+					// Terraform 1.14+ action_trigger is defined only for managed
+					// resources, and Terraform refuses it here in these words.
+					diags = append(diags, &hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Invalid data resource lifecycle nested block",
+						Detail:   "The lifecycle nested block \"action_trigger\" is defined only for managed resources (\"resource\" blocks), and is not valid for data resources.",
+						Subject:  block.DefRange.Ptr(),
+					})
 				default:
 					// The cases above should be exhaustive for all block types
 					// defined in the lifecycle schema, so this shouldn't happen.
@@ -727,6 +747,15 @@ func decodeEphemeralBlock(block *hcl.Block, override bool) (*Resource, hcl.Diagn
 					case "postcondition":
 						r.Postconditions = append(r.Postconditions, cr)
 					}
+				case "action_trigger":
+					// Terraform 1.14+ action_trigger is defined only for managed
+					// resources, and Terraform refuses it here in these words.
+					diags = append(diags, &hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Invalid ephemeral resource lifecycle nested block",
+						Detail:   "The lifecycle nested block \"action_trigger\" is defined only for managed resources (\"resource\" blocks), and is not valid for ephemeral resources.",
+						Subject:  block.DefRange.Ptr(),
+					})
 				default:
 					// The cases above should be exhaustive for all block types
 					// defined in the lifecycle schema, so this shouldn't happen.
@@ -1160,5 +1189,7 @@ var resourceLifecycleBlockSchema = &hcl.BodySchema{
 	Blocks: []hcl.BlockHeaderSchema{
 		{Type: "precondition"},
 		{Type: "postcondition"},
+		// Terraform 1.14+ action_trigger. Additive downstream extension (action.go).
+		{Type: "action_trigger"},
 	},
 }
