@@ -178,6 +178,20 @@ func ValidateMoves(stmts []MoveStatement, rootCfg *configs.Config, declaredInsts
 	return diags
 }
 
+// ValidateMoveStatementGraph checks the given move statements for the
+// "big picture" problems that make the statement graph unusable: cycles in a
+// chain of moves, and self-references.
+//
+// This is the subset of ValidateMoves that depends only on the statements
+// themselves, with no need for the configuration or for the instance set that
+// results from a plan walk. It exists as a separate entry point because
+// ApplyMoves silently declines to move anything when the graph is invalid, so
+// a caller that runs ApplyMoves without a subsequent ValidateMoves needs some
+// way to surface that same failure as an error.
+func ValidateMoveStatementGraph(stmts []MoveStatement) tfdiags.Diagnostics {
+	return validateMoveStatementGraph(buildMoveStatementGraph(stmts))
+}
+
 func validateMoveStatementGraph(g *dag.AcyclicGraph) tfdiags.Diagnostics {
 	var diags tfdiags.Diagnostics
 	for _, cycle := range g.Cycles() {
