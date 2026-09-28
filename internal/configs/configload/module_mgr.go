@@ -19,9 +19,14 @@ type moduleMgr struct {
 
 	// CanInstall is true for a module manager that can support installation.
 	//
-	// This must be set only if FS is an afero.OsFs, because the installer
-	// (which uses go-getter) is not aware of the virtual filesystem
-	// abstraction and will always write into the "real" filesystem.
+	// This must be set only if FS reads the real filesystem directly
+	// (an afero.OsFs), because the installer (which uses go-getter) is
+	// not aware of the virtual filesystem abstraction and will always
+	// write into the "real" filesystem. Callers that compose a virtual
+	// filesystem over the real one must install through a separate
+	// OS-filesystem loader; installed directories and the manifest are
+	// then visible to this manager whenever its FS passes real-disk
+	// reads through.
 	CanInstall bool
 
 	// Dir is the path where descendent modules are (or will be) installed.
