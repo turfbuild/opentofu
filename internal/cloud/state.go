@@ -26,6 +26,7 @@ import (
 
 	tfe "github.com/hashicorp/go-tfe"
 	uuid "github.com/hashicorp/go-uuid"
+	version "github.com/hashicorp/go-version"
 
 	"github.com/opentofu/opentofu/internal/backend/local"
 	"github.com/opentofu/opentofu/internal/command/jsonstate"
@@ -81,6 +82,12 @@ type State struct {
 	enableIntermediateSnapshots bool
 
 	encryption encryption.StateEncryption
+
+	// terraformVersion is the version recorded in the snapshot most recently
+	// read or persisted, reported through StateSnapshotMeta. See the matching
+	// field on states/remote.State: the read value is otherwise discarded, so
+	// nothing downstream can tell which version wrote the state it is reading.
+	terraformVersion *version.Version
 }
 
 var ErrStateVersionUnauthorizedUpgradeState = errors.New(strings.TrimSpace(`
@@ -129,6 +136,7 @@ func (s *State) WriteStateForMigration(f *statefile.File, force bool) error {
 	s.state = f.State.DeepCopy()
 	s.lineage = f.Lineage
 	s.serial = f.Serial
+	s.terraformVersion = f.TerraformVersion
 	s.forcePush = force
 
 	return nil
@@ -149,6 +157,8 @@ func (s *State) StateSnapshotMeta() statemgr.SnapshotMeta {
 	return statemgr.SnapshotMeta{
 		Lineage: s.lineage,
 		Serial:  s.serial,
+
+		TerraformVersion: s.terraformVersion,
 	}
 }
 
@@ -258,6 +268,9 @@ func (s *State) PersistState(ctx context.Context, schemas *tofu.Schemas) error {
 	s.readState = s.state.DeepCopy()
 	s.readLineage = s.lineage
 	s.readSerial = s.serial
+	// statefile.Write stamped the running version into f as it serialized,
+	// so this is the version the bytes we just uploaded actually carry.
+	s.terraformVersion = f.TerraformVersion
 
 	return nil
 }
@@ -394,6 +407,7 @@ func (s *State) refreshState(ctx context.Context) error {
 		s.readState = nil
 		s.lineage = ""
 		s.serial = 0
+		s.terraformVersion = nil
 		return nil
 	}
 
@@ -404,6 +418,7 @@ func (s *State) refreshState(ctx context.Context) error {
 
 	s.lineage = stateFile.Lineage
 	s.serial = stateFile.Serial
+	s.terraformVersion = stateFile.TerraformVersion
 	s.state = stateFile.State
 
 	// Properties from the remote must be separate so we can
