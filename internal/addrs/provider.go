@@ -88,6 +88,13 @@ func ImpliedProviderForUnqualifiedType(typeName string) Provider {
 		// otherwise older versions of OpenTofu could implicitly select
 		// the registry name instead of the internal one.
 		return NewBuiltInProvider(typeName)
+	case "turf":
+		// Downstream: a host that serves its own built-in provider under this
+		// name (x/builtinproviders.ServeActions) has it implied by a turf_*
+		// type exactly as terraform_data implies the one above. No
+		// registry.terraform.io/hashicorp/turf exists, which is the condition
+		// the note above sets.
+		return NewBuiltInProvider(typeName)
 	default:
 		return NewDefaultProvider(typeName)
 	}
