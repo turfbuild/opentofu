@@ -1694,46 +1694,10 @@ func (n *NodeAbstractResource) processIgnoreChanges(prior, config cty.Value, sch
 		return config, nil
 	}
 
-	ignoreChanges := traversalsToPaths(n.Config.Managed.IgnoreChanges)
-	ignoreAll := n.Config.Managed.IgnoreAllChanges
-
-	if len(ignoreChanges) == 0 && !ignoreAll {
-		return config, nil
-	}
-
-	if ignoreAll {
-		// Legacy providers need up to clean up their invalid plans and ensure
-		// no changes are passed though, but that also means making an invalid
-		// config with computed values. In that case we just don't supply a
-		// schema and return the prior val directly.
-		if schema == nil {
-			return prior, nil
-		}
-
-		// If we are trying to ignore all attribute changes, we must filter
-		// computed attributes out from the prior state to avoid sending them
-		// to the provider as if they were included in the configuration.
-		ret, _ := cty.Transform(prior, func(path cty.Path, v cty.Value) (cty.Value, error) {
-			attr := schema.AttributeByPath(path)
-			if attr != nil && attr.Computed && !attr.Optional {
-				return cty.NullVal(v.Type()), nil
-			}
-
-			return v, nil
-		})
-
-		return ret, nil
-	}
-
-	if prior.IsNull() || config.IsNull() {
-		// Ignore changes doesn't apply when we're creating for the first time.
-		// Proposed should never be null here, but if it is then we'll just let it be.
-		return config, nil
-	}
-
-	ret, diags := processIgnoreChangesIndividual(prior, config, ignoreChanges)
-
-	return ret, diags
+	// The rules themselves are applied by ProcessIgnoreChanges, which a
+	// downstream host calls with the rules it holds (ignore_changes_downstream.go).
+	return ProcessIgnoreChanges(prior, config, schema,
+		traversalsToPaths(n.Config.Managed.IgnoreChanges), n.Config.Managed.IgnoreAllChanges)
 }
 
 // Convert the hcl.Traversal values we get form the configuration to the
