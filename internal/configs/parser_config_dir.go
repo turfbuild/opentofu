@@ -32,6 +32,25 @@ const (
 	tofuTestJSONExt = ".tofutest.json"
 )
 
+// Turf overlay files: configuration a downstream host (Turf) reads beside the
+// module's .tf files, and that stock OpenTofu and Terraform skip because they
+// do not recognize the extension -- the way .tofu files are invisible to
+// Terraform. An overlay carries constructs only that host honors (an
+// address-targeted action_trigger, say), so the directory still plans
+// unchanged under either upstream tool. Overlays are ordinary configuration
+// files in every other respect: native syntax for .turf.hcl, JSON for
+// .turf.json, and the _override naming rule applies to them as to .tf files.
+// Downstream extension.
+const (
+	turfExt     = ".turf.hcl"
+	turfJSONExt = ".turf.json"
+)
+
+// IsTurfOverlayFile reports whether path names a Turf overlay file.
+func IsTurfOverlayFile(path string) bool {
+	return turfFileExt(path) != ""
+}
+
 // LoadConfigDir reads the .tf and .tf.json files in the given directory
 // as config files (using LoadConfigFile) and then combines these files into
 // a single Module.
@@ -341,7 +360,23 @@ func fileExt(path string) string {
 		extension = tofuFileExt(path)
 	}
 
+	if extension == "" {
+		extension = turfFileExt(path)
+	}
+
 	return extension
+}
+
+// turfFileExt returns the Turf overlay extension of the given path, or a blank
+// string if it is not one.
+func turfFileExt(path string) string {
+	switch {
+	case strings.HasSuffix(path, turfExt):
+		return turfExt
+	case strings.HasSuffix(path, turfJSONExt):
+		return turfJSONExt
+	}
+	return ""
 }
 
 // tfFileExt returns the OpenTofu .tf configuration extension of the given
