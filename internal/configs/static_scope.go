@@ -24,13 +24,15 @@ import (
 
 // newStaticScope creates a lang.Scope that's backed by the static view of the module represented by the StaticEvaluator
 func newStaticScope(eval *StaticEvaluator, stack0 StaticIdentifier, stack ...StaticIdentifier) *lang.Scope {
-	return &lang.Scope{
+	scope := &lang.Scope{
 		Data:        staticScopeData{eval, append([]StaticIdentifier{stack0}, stack...)},
 		ParseRef:    addrs.ParseRef,
 		BaseDir:     ".", // Always current working directory for now. (same as Evaluator.Scope())
 		PureOnly:    false,
 		ConsoleMode: false,
 	}
+	applyStaticPaths(scope, eval.call.paths)
+	return scope
 }
 
 // This structure represents the data required to evaluate a specific identifier reference (top of the stack)
@@ -161,6 +163,9 @@ func (s staticScopeData) GetModule(context.Context, addrs.ModuleCall, tfdiags.So
 
 func (s staticScopeData) GetPathAttr(_ context.Context, addr addrs.PathAttr, rng tfdiags.SourceRange) (cty.Value, tfdiags.Diagnostics) {
 	// TODO this is copied and trimmed down from tofu/evaluate.go GetPathAttr.  Ideally this should be refactored to a common location.
+	if val, diags, ok := staticPathAttr(s.eval, addr.Name, rng); ok {
+		return val, diags
+	}
 	var diags tfdiags.Diagnostics
 	switch addr.Name {
 	case "cwd":
