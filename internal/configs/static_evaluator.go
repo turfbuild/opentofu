@@ -43,6 +43,11 @@ type StaticModuleCall struct {
 	vars      StaticModuleVariables
 	rootPath  string
 	workspace string
+
+	// A downstream host's StaticPaths, and whether this module lies inside a
+	// module package (static_paths_downstream.go).
+	paths     *StaticPaths
+	inPackage bool
 }
 
 func NewStaticModuleCall(addr addrs.Module, declRange hcl.Range, vars StaticModuleVariables, rootPath string, workspace string) StaticModuleCall {
@@ -66,6 +71,8 @@ func (s StaticModuleCall) WithVariables(vars StaticModuleVariables) StaticModule
 		vars:      vars,
 		rootPath:  s.rootPath,
 		workspace: s.workspace,
+		paths:     s.paths,
+		inPackage: s.inPackage,
 	}
 }
 
