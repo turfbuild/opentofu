@@ -85,6 +85,13 @@ type Scope struct {
 	ProviderFunctions ProviderFunction
 
 	SymbolTable symlib.Table
+
+	// AbsPathFromBaseDir makes abspath resolve a relative path against
+	// BaseDir, as the filesystem functions resolve theirs, rather than against
+	// the process working directory. OpenTofu's own BaseDir is "." -- that
+	// same directory -- so it leaves this unset; a downstream host evaluating
+	// in a process whose working directory is not the configuration's sets it.
+	AbsPathFromBaseDir bool
 }
 
 type ProviderFunction func(context.Context, addrs.ProviderFunction, tfdiags.SourceRange) (*function.Function, tfdiags.Diagnostics)
