@@ -31,6 +31,9 @@ func (s *Scope) Functions() map[string]function.Function {
 	s.funcsLock.Lock()
 	if s.funcs == nil {
 		s.funcs = makeBaseFunctionTable(s.BaseDir)
+		if s.AbsPathFromBaseDir {
+			s.funcs["abspath"] = funcs.MakeAbsPathFunc(s.BaseDir)
+		}
 		if s.ConsoleMode {
 			// The type function is only available in OpenTofu console.
 			s.funcs["type"] = funcs.TypeFunc
