@@ -179,7 +179,8 @@ func buildTestModules(ctx context.Context, root *Config, walker ModuleWalker) hc
 				CallRange:         run.Module.DeclRange,
 			}
 
-			staticCall := NewStaticModuleCall(
+			staticCall := childStaticCall(
+				root,
 				path,
 				run.Module.DeclRange,
 				func(v *Variable) (cty.Value, hcl.Diagnostics) {
@@ -201,7 +202,7 @@ func buildTestModules(ctx context.Context, root *Config, walker ModuleWalker) hc
 					}
 					return cty.DynamicVal, nil
 				},
-				root.Module.SourceDir,
+				run.Module.Source,
 				root.Module.StaticEvaluator.call.workspace,
 			)
 			cfg, modDiags := loadModule(ctx, root, &req, staticCall, walker)
@@ -267,7 +268,7 @@ func buildChildModules(ctx context.Context, parent *Config, walker ModuleWalker)
 			// Invalid modules sometimes have a nil source field which is handled through loadModule below
 			req.SourceAddrRange = call.Source.Range()
 		}
-		staticCall := NewStaticModuleCall(path, call.DeclRange, call.Variables, parent.Root.Module.SourceDir, call.Workspace)
+		staticCall := childStaticCall(parent, path, call.DeclRange, call.Variables, call.SourceAddr, call.Workspace)
 		child, modDiags := loadModule(ctx, parent.Root, &req, staticCall, walker)
 		diags = append(diags, modDiags...)
 		if child == nil {
