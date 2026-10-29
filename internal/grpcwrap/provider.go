@@ -98,6 +98,8 @@ func (p *provider) GetSchema(_ context.Context, req *tfplugin5.GetProviderSchema
 		PlanDestroy: p.schema.ServerCapabilities.PlanDestroy,
 	}
 
+	resp.Functions = functionsToProto(p.schema.Functions)
+
 	// include any diagnostics from the original GetSchema call
 	resp.Diagnostics = convert.AppendProtoDiag(resp.Diagnostics, p.schema.Diagnostics)
 
@@ -641,14 +643,6 @@ func (p *provider) Stop(ctx context.Context, _ *tfplugin5.Stop_Request) (*tfplug
 		resp.Error = err.Error()
 	}
 	return resp, nil
-}
-
-func (p *provider) GetFunctions(context.Context, *tfplugin5.GetFunctions_Request) (*tfplugin5.GetFunctions_Response, error) {
-	panic("Not Implemented")
-}
-
-func (p *provider) CallFunction(context.Context, *tfplugin5.CallFunction_Request) (*tfplugin5.CallFunction_Response, error) {
-	panic("Not Implemented")
 }
 
 // UpgradeResourceIdentity implements tfplugin5.ProviderServer.
